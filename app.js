@@ -880,6 +880,11 @@ function setNoticePhoto(key, file) {
   notice.dirty = true;
 }
 
+const UNSUPPORTED_IMAGE_MSG = 'この画像形式には対応していません。\nJPGまたはPNGの写真を選んでください。（iPhoneのHEIC形式は使えません）';
+function isUnsupportedImage(file) {
+  return /^image\/hei[cf]/i.test(file.type) || /\.hei[cf]$/i.test(file.name);
+}
+
 /* ---- 写真のトリミング（ドラッグで位置、スライダー/ホイールで拡大）。結果はブラウザ内だけで保持 ---- */
 let crop = null;
 
@@ -897,7 +902,10 @@ function openCrop(key) {
     crop = { key, img, W, H, min, zoom: 1, x: (W - img.naturalWidth * min) / 2, y: (H - img.naturalHeight * min) / 2 };
     showCropModal();
   };
-  img.onerror = () => alert('この画像は読み込めませんでした（HEIC形式などはブラウザで表示できません。JPGに変換してから選んでください）');
+  img.onerror = () => {
+    alert(UNSUPPORTED_IMAGE_MSG);
+    if (notice) { removeSlot(key); render(); }
+  };
   img.src = src;
 }
 
@@ -1022,7 +1030,7 @@ async function downloadNoticePdf() {
     const canvas = await window.html2canvas(sheet, { scale: 2, backgroundColor: '#ffffff', logging: false });
     const pdf = new window.jspdf.jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
     pdf.addImage(canvas.toDataURL('image/jpeg', 0.92), 'JPEG', 0, 0, 210, 297);
-    pdf.save(`健診結果のお知らせ_${p.number}_${ymd(new Date())}.pdf`);
+    pdf.save(`${p.number}_${ymd(new Date())}_健診結果のお知らせ.pdf`);
     ok = true;
   } catch (e) {
     console.error(e);
@@ -1165,7 +1173,12 @@ document.addEventListener('change', e => {
     return;
   }
   if (el.dataset.nphoto && notice) {
-    const files = [...el.files];
+    const picked = [...el.files];
+    const bad = picked.filter(isUnsupportedImage);
+    const files = picked.filter(f => !isUnsupportedImage(f));
+    el.value = '';
+    if (bad.length) alert(UNSUPPORTED_IMAGE_MSG + (picked.length > 1 ? `\n\n対象外にしたファイル：${bad.map(f => f.name).join('、')}` : ''));
+    if (!files.length) return;
     if (el.dataset.nphoto === 'multi') {
       let slot = 0;
       files.forEach(f => {
