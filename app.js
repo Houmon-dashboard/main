@@ -141,6 +141,7 @@ const ui = {
   scheduleTab: 'today',
   month: ymd(new Date()).slice(0, 7),
   currentUser: safeGet(localStorage, STORE_KEY + ':user') || '',
+  showAddForm: false,
 };
 
 function safeGet(store, key) { try { return store.getItem(key); } catch (e) { return null; } }
@@ -262,15 +263,13 @@ function stageCounts() {
 
 function renderSidebar(routeKey) {
   const counts = stageCounts();
-  const pendingPatients = dashboardPatients().length;
-  const followCount = visiblePatients().filter(p => p.status === '継続訪問').length;
   const link = (href, key, label, extra = '', ico = '') =>
     `<a class="nav-item${routeKey === key ? ' active' : ''}" href="${href}">${ico}<span class="nav-text">${label}</span>${extra}</a>`;
 
   document.getElementById('sidebar').innerHTML = `
-    <div class="brand">訪問歯科診療<br>新患・初診時チェックリスト</div>
+    <a class="brand" href="#/" title="トップへ戻る">訪問歯科診療<br>新患・初診時チェックリスト</a>
     <nav class="nav">
-      ${link('#/', 'dashboard', 'トップへ戻る', badge(pendingPatients), icon('dashboard'))}
+      ${link('#/schedule', 'schedule', '訪問予定', '', icon('schedule'))}
     </nav>
     <div class="nav-heading">やることリスト</div>
     ${PHASES.map(ph => `
@@ -279,11 +278,6 @@ function renderSidebar(routeKey) {
         ${SECTIONS.filter(s => s.phase === ph.id).map(s => link(sectionHref(s), 'stage-' + s.id, s.menu, badge(counts[s.id]))).join('')}
       </div>`).join('')}
     <nav class="nav">
-      ${link('#/followup', 'followup', '継続訪問', followCount ? `<span class="count">${followCount}</span>` : '', icon('followup'))}
-    </nav>
-    <div class="nav-sep"></div>
-    <nav class="nav">
-      ${link('#/schedule', 'schedule', '訪問予定', '', icon('schedule'))}
       ${link('#/patients', 'patients', '患者一覧', '', icon('patients'))}
       ${link('#/settings', 'settings', '設定', '', icon('settings'))}
     </nav>
@@ -500,12 +494,31 @@ function viewDashboard() {
   const tm = ymd(addDays(new Date(), 1));
   const waitingDocs = visiblePatients().reduce((n, p) => n + ALL_ITEMS.filter(i => itemValue(p, i.id) === '後日返信待ち').length, 0);
   const groups = groupByPlace(pts);
+  const noPatients = !state.patients.length;
   return `
-  <div class="summary">
-    <span>今日の訪問 <strong>${visitsBetween(t, t).length}</strong>件</span>
-    <span>明日の訪問 <strong>${visitsBetween(tm, tm).length}</strong>件</span>
-    <span>後日返信待ちの書類 <strong>${waitingDocs}</strong>件</span>
+  <div class="dash-top">
+    <div class="summary">
+      <span>今日の訪問 <strong>${visitsBetween(t, t).length}</strong>件</span>
+      <span>明日の訪問 <strong>${visitsBetween(tm, tm).length}</strong>件</span>
+      <span>後日返信待ちの書類 <strong>${waitingDocs}</strong>件</span>
+    </div>
+    <button class="btn primary" data-action="toggle-add">${ui.showAddForm ? '閉じる' : '＋ 新患を追加する'}</button>
   </div>
+
+  ${ui.showAddForm ? `<section class="card panel add-panel">
+    <div class="panel-head"><h2>新患を追加する</h2><span class="muted">氏名は入力しません。患者番号と氏名の対応は院内で管理してください。</span></div>
+    ${patientForm()}
+  </section>` : ''}
+
+  ${noPatients && !ui.showAddForm ? `<section class="card panel welcome">
+    <h2>まずは新患を登録しましょう</h2>
+    <p>右上の「＋ 新患を追加する」から、患者番号と訪問先を入れると、その患者のやることリストが作られます。</p>
+    <p class="muted">画面の雰囲気を先に見たい場合は、サンプルデータを入れることもできます（あとで「設定」から消去できます）。</p>
+    <div class="btn-row">
+      <button class="btn primary" data-action="toggle-add">＋ 新患を追加する</button>
+      <button class="btn" data-action="sample">サンプルデータを入れる</button>
+    </div>
+  </section>` : ''}
 
   <section class="block">
     <div class="block-head"><h2>未完了項目一覧</h2>${badge(pts.length)}<span class="muted">終わっていない項目がある患者</span></div>
@@ -513,7 +526,7 @@ function viewDashboard() {
       <div class="place-group">
         <h3 class="place-title">${esc(g.place)}<span class="muted">${g.list.length}人</span></h3>
         <div class="card-grid">${g.list.map(dashCard).join('')}</div>
-      </div>`).join('') : '<div class="card empty-card">未完了の項目はありません</div>'}
+      </div>`).join('') : `<div class="card empty-card">${noPatients ? '患者が登録されていません' : '未完了の項目はありません'}</div>`}
   </section>
 
   <section class="card panel">
@@ -590,19 +603,23 @@ function viewFollowup() {
   </section>`;
 }
 
-function viewPatients() {
-  const pts = sortPatients(visiblePatients());
-  return `
-  <section class="card panel">
-    <div class="panel-head"><h2>患者を追加</h2><span class="muted">氏名は入力しません。患者番号と氏名の対応は院内で管理してください。</span></div>
-    <form class="form-grid" data-form="patient">
+function patientForm() {
+  return `<form class="form-grid" data-form="patient">
       <label>患者番号<input type="text" name="number" required maxlength="20" placeholder="例：A-001" autocomplete="off"></label>
       <label>訪問先<select name="place" required>${options(places(), ui.placeFilter || '', { blank: '選択' })}</select></label>
       <label>ステータス<select name="status">${options(STATUSES, '受付')}</select></label>
       <label>担当<select name="staff">${options(state.settings.staff, '', { blank: '—' })}</select></label>
       <label class="wide">メモ（1行・氏名は書かない）<input type="text" name="memo" maxlength="60"></label>
       <div class="form-actions"><button class="btn primary" type="submit">追加</button></div>
-    </form>
+    </form>`;
+}
+
+function viewPatients() {
+  const pts = sortPatients(visiblePatients());
+  return `
+  <section class="card panel">
+    <div class="panel-head"><h2>患者を追加</h2><span class="muted">氏名は入力しません。患者番号と氏名の対応は院内で管理してください。</span></div>
+    ${patientForm()}
   </section>
   <section class="card panel">
     <div class="panel-head"><h2>患者一覧</h2><span class="muted">${pts.length}人</span></div>
@@ -1048,7 +1065,11 @@ document.addEventListener('click', e => {
   const el = e.target.closest('[data-action]');
   if (!el || el.tagName === 'SELECT' || el.type === 'checkbox' || el.type === 'file' || el.type === 'text' || el.tagName === 'TEXTAREA') return;
   const a = el.dataset.action;
-  if (a === 'schedule-tab') { ui.scheduleTab = el.dataset.tab; render(); }
+  if (a === 'toggle-add') {
+    ui.showAddForm = !ui.showAddForm; render();
+    if (ui.showAddForm) { const f = document.querySelector('form[data-form="patient"] input[name="number"]'); if (f) f.focus(); }
+  }
+  else if (a === 'schedule-tab') { ui.scheduleTab = el.dataset.tab; render(); }
   else if (a === 'month-prev' || a === 'month-next') {
     const [y, m] = ui.month.split('-').map(Number);
     const d = new Date(y, m - 1 + (a === 'month-next' ? 1 : -1), 1);
@@ -1116,6 +1137,7 @@ document.addEventListener('submit', e => {
     const p = { id: uid(), number, place: fd.place, status: fd.status, staff: fd.staff, memo: fd.memo, remarks: '', checklist: {}, createdAt: nowIso(), updatedAt: nowIso() };
     state.patients.push(p);
     addLog(p.id, `患者を登録（${p.place}／${p.status}）`);
+    ui.showAddForm = false;
     save(); render(); toast(`${number} を追加しました`);
   } else if (kind === 'patient-edit') {
     const p = patientById(form.dataset.id);
