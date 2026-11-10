@@ -22,14 +22,14 @@
   --clinic-line: #ddd0f5;
   --radius: 6px;
   --shadow: 0 1px 2px rgba(16, 24, 40, .05), 0 1px 3px rgba(16, 24, 40, .04);
-  --sidebar-w: 248px;
+  --sidebar-w: 268px;
 }
 
 * { box-sizing: border-box; }
 html { -webkit-text-size-adjust: 100%; }
 body {
   margin: 0;
-  font-family: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", "Meiryo", system-ui, sans-serif;
+  font-family: "Meiryo", "メイリオ", "Hiragino Sans", "Hiragino Kaku Gothic ProN", sans-serif;
   font-size: 15px;
   line-height: 1.55;
   color: var(--text);
@@ -72,11 +72,11 @@ main { padding: 20px 28px 40px; max-width: 1280px; }
   color: var(--text);
   text-decoration: none;
   font-size: .9rem;
-  font-weight: 700;
+  font-weight: 400;
 }
 .nav-item svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; color: #5b6578; flex-shrink: 0; }
 .nav-item:hover { background: var(--bg); }
-.nav-item.active { background: var(--accent-soft); color: var(--accent); }
+.nav-item.active { background: var(--accent-soft); color: var(--accent); font-weight: 700; }
 .nav-item.active svg { color: var(--accent); }
 .nav-text { flex: 1; }
 .nav-heading { font-size: .78rem; color: var(--muted); font-weight: 700; margin: 16px 18px 8px; letter-spacing: .04em; }
@@ -87,7 +87,7 @@ main { padding: 20px 28px 40px; max-width: 1280px; }
 .phase-block + .nav { border-top: 1px solid var(--side-line); }
 .phase-block.phase-clinic { background: var(--clinic-soft); }
 .phase-block.phase-visit { background: var(--visit-soft); }
-.phase-block .nav-item { padding: 9px 18px 9px 22px; font-size: .88rem; border-top: 1px solid var(--side-line); }
+.phase-block .nav-item { padding: 9px 18px 9px 22px; font-size: .88rem; border-bottom: 1px solid #b9c0cc; }
 .phase-block .nav-item:hover { background: rgba(255, 255, 255, .6); }
 .phase-block .nav-item.active { background: #fff; }
 .phase-title { display: flex; align-items: center; gap: 10px; font-size: 1.05rem; font-weight: 700; padding: 0 18px 0 0; }
