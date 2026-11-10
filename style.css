@@ -5,6 +5,7 @@
   --muted: #8a94a6;
   --line: #e6e9f0;
   --line-strong: #d5dae4;
+  --side-line: #b9c0cc;
   --accent: #3d6df2;
   --accent-soft: #eaf0fe;
   --ok: #18884a;
@@ -19,7 +20,7 @@
   --clinic: #7048c8;
   --clinic-soft: #f2edfc;
   --clinic-line: #ddd0f5;
-  --radius: 10px;
+  --radius: 6px;
   --shadow: 0 1px 2px rgba(16, 24, 40, .05), 0 1px 3px rgba(16, 24, 40, .04);
   --sidebar-w: 248px;
 }
@@ -45,7 +46,7 @@ h3 { font-size: .95rem; }
   width: var(--sidebar-w);
   flex-shrink: 0;
   background: var(--panel);
-  border-right: 1px solid var(--line);
+  border-right: 1px solid var(--side-line);
   padding: 0 0 24px;
   position: sticky;
   top: 0;
@@ -70,26 +71,26 @@ main { padding: 20px 28px 40px; max-width: 1280px; }
   padding: 10px 18px;
   color: var(--text);
   text-decoration: none;
-  font-size: .92rem;
+  font-size: .9rem;
+  font-weight: 700;
 }
-.nav-item svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; color: #5b6578; flex-shrink: 0; }
+.nav-item svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; color: #5b6578; flex-shrink: 0; }
 .nav-item:hover { background: var(--bg); }
-.nav-item.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.nav-item.active { background: var(--accent-soft); color: var(--accent); }
 .nav-item.active svg { color: var(--accent); }
 .nav-text { flex: 1; }
-.nav-heading { font-size: .75rem; color: var(--muted); font-weight: 600; margin: 16px 18px 8px; letter-spacing: .04em; }
-.nav-sep { height: 1px; background: var(--line); margin: 8px 0; }
+.nav-heading { font-size: .78rem; color: var(--muted); font-weight: 700; margin: 16px 18px 8px; letter-spacing: .04em; }
+.nav-sep { height: 1px; background: var(--side-line); margin: 8px 0; }
 
-/* やることリスト：角丸なし・横幅いっぱいのブロック */
-.phase-block { border-top: 1px solid var(--line); }
-.phase-block + .phase-block { border-top-color: var(--line-strong); }
-.phase-block + .nav { border-top: 1px solid var(--line); }
+/* やることリスト：角丸なし・横幅いっぱいのブロック、項目ごとに区切り線 */
+.phase-block { border-top: 1px solid var(--side-line); }
+.phase-block + .nav { border-top: 1px solid var(--side-line); }
 .phase-block.phase-clinic { background: var(--clinic-soft); }
 .phase-block.phase-visit { background: var(--visit-soft); }
-.phase-block .nav-item { padding: 9px 18px 9px 22px; font-size: .9rem; }
+.phase-block .nav-item { padding: 9px 18px 9px 22px; font-size: .88rem; border-top: 1px solid var(--side-line); }
 .phase-block .nav-item:hover { background: rgba(255, 255, 255, .6); }
 .phase-block .nav-item.active { background: #fff; }
-.phase-title { display: flex; align-items: center; gap: 10px; font-size: .95rem; font-weight: 700; padding: 0 18px 4px 0; }
+.phase-title { display: flex; align-items: center; gap: 10px; font-size: 1.05rem; font-weight: 700; padding: 0 18px 0 0; }
 .phase-clinic .phase-title { background: #e9e1fa; }
 .phase-visit .phase-title { background: #d9ebf8; }
 .phase-title .place-tag { padding: 5px 10px; border-radius: 0; font-size: .75rem; }
@@ -111,7 +112,7 @@ main { padding: 20px 28px 40px; max-width: 1280px; }
 }
 .count { font-size: .78rem; color: var(--muted); }
 
-.sidebar-note { margin: 18px 14px 0; font-size: .72rem; color: var(--warn); background: var(--warn-soft); border-radius: 8px; padding: 8px 10px; line-height: 1.5; }
+.sidebar-note { margin: 18px 14px 0; font-size: .72rem; color: var(--warn); background: var(--warn-soft); border-radius: 6px; padding: 8px 10px; line-height: 1.5; }
 
 .topbar {
   display: flex; align-items: center; gap: 12px;
@@ -124,11 +125,11 @@ main { padding: 20px 28px 40px; max-width: 1280px; }
 .topbar-controls { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; }
 .mini-select {
   display: flex; align-items: center; gap: 6px;
-  background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 6px;
   padding: 0 4px 0 10px; font-size: .8rem; color: var(--muted);
 }
 .mini-select select { border: none; min-height: 32px; padding: 4px; font-size: .85rem; background: transparent; }
-.menu-btn { display: none; background: none; border: none; padding: 6px; margin-left: -6px; cursor: pointer; color: var(--text); border-radius: 8px; }
+.menu-btn { display: none; background: none; border: none; padding: 6px; margin-left: -6px; cursor: pointer; color: var(--text); border-radius: 6px; }
 .menu-btn svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
 .backdrop { display: none; }
 
@@ -136,7 +137,7 @@ main { padding: 20px 28px 40px; max-width: 1280px; }
 select, input[type="text"], input[type="date"], input[type="time"], textarea {
   font: inherit; color: inherit;
   border: 1px solid var(--line-strong);
-  border-radius: 8px;
+  border-radius: 6px;
   padding: 6px 8px;
   background: #fff;
   min-height: 36px;
@@ -150,7 +151,7 @@ select:focus, input:focus, textarea:focus { outline: 2px solid var(--accent); ou
   border: 1px solid var(--line-strong);
   background: #fff; color: var(--text);
   padding: 7px 14px;
-  border-radius: 8px;
+  border-radius: 6px;
   cursor: pointer; text-decoration: none;
   min-height: 36px;
 }
@@ -182,7 +183,7 @@ select:focus, input:focus, textarea:focus { outline: 2px solid var(--accent); ou
 .empty-card { padding: 20px; color: var(--muted); }
 .crumb { margin-bottom: 10px; font-size: .9rem; }
 .warn-text { color: var(--warn); }
-.note-box { margin-top: 10px; background: var(--warn-soft); color: var(--warn); border-radius: 8px; padding: 8px 12px; font-size: .88rem; }
+.note-box { margin-top: 10px; background: var(--warn-soft); color: var(--warn); border-radius: 6px; padding: 8px 12px; font-size: .88rem; }
 
 .summary { display: flex; flex-wrap: wrap; gap: 6px 20px; margin-bottom: 16px; color: var(--muted); font-size: .9rem; }
 .summary strong { color: var(--text); font-size: 1.05rem; margin: 0 2px; }
@@ -246,7 +247,7 @@ select:focus, input:focus, textarea:focus { outline: 2px solid var(--accent); ou
   gap: 8px;
   align-items: center;
   padding: 6px 8px;
-  border-radius: 8px;
+  border-radius: 6px;
 }
 .cl-item:nth-child(even) { background: #fafbfd; }
 .cl-item.sub .cl-label { padding-left: 18px; }
@@ -290,7 +291,7 @@ select:focus, input:focus, textarea:focus { outline: 2px solid var(--accent); ou
 .tab.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
 
 .cal-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
-.cal { display: grid; grid-template-columns: repeat(7, 1fr); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.cal { display: grid; grid-template-columns: repeat(7, 1fr); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
 .cal-wd { font-size: .78rem; text-align: center; padding: 4px; background: #f8f9fc; border-bottom: 1px solid var(--line); color: var(--muted); }
 .cal-cell { min-height: 88px; padding: 4px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); overflow: hidden; }
 .cal-cell:nth-child(7n) { border-right: none; }
@@ -322,7 +323,7 @@ select:focus, input:focus, textarea:focus { outline: 2px solid var(--accent); ou
 .toast {
   position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%);
   background: #1d2433; color: #fff;
-  padding: 10px 18px; border-radius: 8px; font-size: .9rem; z-index: 100;
+  padding: 10px 18px; border-radius: 6px; font-size: .9rem; z-index: 100;
 }
 
 /* ---------- 健診結果のお知らせ ---------- */
@@ -426,7 +427,7 @@ select:focus, input:focus, textarea:focus { outline: 2px solid var(--accent); ou
   .cal-item { font-size: .62rem; }
   .table thead { display: none; }
   .table, .table tbody, .table tr, .table td { display: block; width: 100%; }
-  .table tr { border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; margin-bottom: 8px; }
+  .table tr { border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; margin-bottom: 8px; }
   .table td { border: none; padding: 3px 0; }
 }
 
