@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>訪問歯科 進捗ダッシュボード（テスト版）</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="test-banner">
+    テスト版：データはこの端末のブラウザ内だけに保存されます（他の端末とは共有されません）。実在の患者情報・氏名は入力しないでください。
+  </div>
+  <header class="app-header">
+    <div class="brand">訪問歯科 進捗ダッシュボード</div>
+    <nav class="nav">
+      <a href="#/" data-nav="dashboard">ダッシュボード</a>
+      <a href="#/patients" data-nav="patients">患者一覧</a>
+      <a href="#/schedule" data-nav="schedule">訪問予定</a>
+      <a href="#/settings" data-nav="settings">設定</a>
+    </nav>
+    <div class="header-controls">
+      <label>入力者
+        <select id="current-user"></select>
+      </label>
+      <label>訪問先
+        <select id="place-filter"></select>
+      </label>
+    </div>
+  </header>
+  <main id="app"></main>
+  <div id="toast" class="toast" hidden></div>
+  <script src="app.js"></script>
+</body>
+</html>
