@@ -41,7 +41,7 @@ const SECTIONS = [
     ],
   },
   {
-    id: 'q', phase: 'pre', menu: '初診前の準備', title: '初診前の準備', role: 'コーディネーター・診療担当', start: '初診日確定',
+    id: 'q', phase: 'pre', menu: '初診前の準備', title: '初診前の準備', role: 'コーディネーター・診療担当', start: '受付',
     items: [
       { id: 'q1', label: '予約登録・カルテ作成、必要な保険情報・連絡先を登録', type: 'check' },
       { id: 'q2', label: '医科情報・お薬手帳・紹介状等を確認し、必要に応じて照会', type: 'check' },
@@ -82,7 +82,7 @@ const SECTIONS = [
     ],
   },
   {
-    id: 'c', phase: 'post', menu: '事務・連携対応', title: '事務・連携対応', role: '事務', start: '初診済・医院処理中',
+    id: 'c', phase: 'post', menu: '事務・連携対応', title: '事務・連携対応', role: '事務', start: '初診日確定',
     items: [
       { id: 'c1', label: 'マイナンバーカード／資格確認書・医療証の確認・登録', type: 'check', dependsOn: ['b8'] },
       { id: 'c2', label: '介護保険証・負担割合証の確認・登録', type: 'check', dependsOn: ['b9'] },
@@ -91,7 +91,7 @@ const SECTIONS = [
     ],
   },
   {
-    id: 'r', phase: 'post', menu: '健診結果のお知らせ作成', title: '歯科健診結果のお知らせ（写真）作成', role: '事務・歯科衛生士', start: '初診済・医院処理中', route: '#/notice',
+    id: 'r', phase: 'post', menu: '健診結果のお知らせ作成', title: '歯科健診結果のお知らせ（写真）作成', role: '事務・歯科衛生士', start: '初診日確定', route: '#/notice',
     items: [
       { id: 'r1', label: '健診結果のお知らせ（写真）を作成し、PDF保存または印刷', type: 'check', locked: true, dependsOn: ['a11'] },
     ],
@@ -262,7 +262,7 @@ function stageCounts() {
 
 function renderSidebar(routeKey) {
   const counts = stageCounts();
-  const pendingPatients = visiblePatients().filter(p => SECTIONS.some(s => reached(p, s) && sectionOpen(p, s).length)).length;
+  const pendingPatients = dashboardPatients().length;
   const followCount = visiblePatients().filter(p => p.status === '継続訪問').length;
   const link = (href, key, label, extra = '', ico = '') =>
     `<a class="nav-item${routeKey === key ? ' active' : ''}" href="${href}">${ico}<span class="nav-text">${label}</span>${extra}</a>`;
@@ -436,43 +436,66 @@ function visitForm(presetPatientId) {
 
 /* ---------------- Views ---------------- */
 
+/* ダッシュボードの表示ルール
+ * - 初診前（資料A）：ステータスに関係なく、残りがあれば「初診前の確認 残りN項目」の1行、なければ「初診前：完了」
+ * - 初診当日・初診後（資料B）：初診済以降の患者だけ。完了していない項目を並べ、全部終わっていれば「○○：完了」
+ * - 初診前の患者には、資料Bの代わりに初診予定日を1行で出す */
+function afterFirstVisit(p) { return statusIdx(p.status) >= statusIdx('初診済・医院処理中'); }
+function phaseOpenCount(p, phaseId) {
+  return SECTIONS.filter(s => s.phase === phaseId).reduce((n, s) => n + sectionOpen(p, s).length, 0);
+}
+function dashboardOpenCount(p) {
+  if (p.status === '終了・中止') return 0;
+  return phaseOpenCount(p, 'pre') + (afterFirstVisit(p) ? phaseOpenCount(p, 'day') + phaseOpenCount(p, 'post') : 0);
+}
+function dashboardPatients() { return visiblePatients().filter(p => dashboardOpenCount(p) > 0); }
+
 function dashCard(p) {
-  // 初診前の患者は「初診当日」の項目を1行にまとめる（当日まで一覧が長くなりすぎないように）
-  const beforeVisit = statusIdx(p.status) < statusIdx('初診済・医院処理中');
-  const groups = SECTIONS.filter(s => reached(p, s))
-    .map(s => ({ s, items: sectionOpen(p, s), upcoming: beforeVisit && s.phase === 'day' }))
-    .filter(g => g.items.length);
-  const total = groups.filter(g => !g.upcoming).reduce((n, g) => n + g.items.length, 0);
-  const upcoming = groups.filter(g => g.upcoming);
-  const firstVisit = state.visits.filter(v => v.patientId === p.id && v.kind === '初診').sort((a, b) => a.date.localeCompare(b.date))[0];
-  return `<article class="card pcard">
-    <header class="pcard-head">
-      ${patientLink(p)}
-      ${badge(total)}
-      <span class="spacer"></span>
-      ${statusSelect(p)}
-    </header>
-    ${upcoming.length ? `<div class="pcard-group upcoming">
-      <span class="dot visit"></span>初診当日のチェック ${upcoming.reduce((n, g) => n + g.items.length, 0)}項目
-      <span class="muted">（${firstVisit ? `${fmtDate(firstVisit.date)}${firstVisit.time ? ' ' + esc(firstVisit.time) : ''} 予定` : '初診日未定'}）</span>
-    </div>` : ''}
-    ${groups.filter(g => !g.upcoming).map(({ s, items }) => {
-      const ph = PHASE_BY_ID[s.phase];
-      return `<div class="pcard-group">
+  const rows = [];
+  const doneLine = ph => `<div class="pcard-line done"><span class="dot ${placeClass(ph.place)}"></span>${ph.title}：完了</div>`;
+  PHASES.forEach(ph => {
+    const groups = SECTIONS.filter(s => s.phase === ph.id).map(s => ({ s, items: sectionOpen(p, s) }));
+    const openCount = groups.reduce((n, g) => n + g.items.length, 0);
+    if (ph.id === 'pre') {
+      const first = groups.find(g => g.items.length);
+      rows.push(openCount
+        ? `<a class="pcard-line" href="${sectionHref(first.s)}"><span class="dot ${placeClass(ph.place)}"></span>${ph.title}の確認<span class="line-count">残り${openCount}項目</span><span class="chev">›</span></a>`
+        : doneLine(ph));
+      return;
+    }
+    if (!afterFirstVisit(p)) {
+      if (ph.id === 'day') {
+        const fv = state.visits.filter(v => v.patientId === p.id && v.kind === '初診').sort((a, b) => a.date.localeCompare(b.date))[0];
+        rows.push(`<div class="pcard-line upcoming"><span class="dot visit"></span>初診日<span class="line-count">${fv ? `${fmtDate(fv.date)}${fv.time ? ' ' + esc(fv.time) : ''} 予定` : '未定'}</span></div>`);
+      }
+      return;
+    }
+    if (!openCount) { rows.push(doneLine(ph)); return; }
+    groups.filter(g => g.items.length).forEach(({ s, items }) => {
+      rows.push(`<div class="pcard-group">
         <a class="pcard-sec" href="${sectionHref(s)}"><span class="dot ${placeClass(ph.place)}"></span>${ph.title}｜${esc(s.menu)}</a>
         <ul class="todo">${items.map(i => {
           const v = itemValue(p, i.id);
           const wait = waitingDeps(p, i).length;
           return `<li${v === '後日返信待ち' ? ' class="pending"' : ''}>${esc(shortLabel(i))}${v === '後日返信待ち' ? '<em class="tag-pending">返信待ち</em>' : ''}${wait ? '<em class="tag-wait">待ち</em>' : ''}</li>`;
         }).join('')}</ul>
-      </div>`;
-    }).join('')}
+      </div>`);
+    });
+  });
+  return `<article class="card pcard">
+    <header class="pcard-head">
+      ${patientLink(p)}
+      ${badge(dashboardOpenCount(p))}
+      <span class="spacer"></span>
+      ${statusSelect(p)}
+    </header>
+    ${rows.join('')}
     <footer class="pcard-foot">${memoInput(p)}</footer>
   </article>`;
 }
 
 function viewDashboard() {
-  const pts = visiblePatients().filter(p => SECTIONS.some(s => reached(p, s) && sectionOpen(p, s).length));
+  const pts = dashboardPatients();
   const t = ymd(new Date());
   const tm = ymd(addDays(new Date(), 1));
   const waitingDocs = visiblePatients().reduce((n, p) => n + ALL_ITEMS.filter(i => itemValue(p, i.id) === '後日返信待ち').length, 0);

@@ -201,7 +201,14 @@ select:focus, input:focus, textarea:focus { outline: 2px solid var(--accent); ou
 .pcard-head .status-select { font-size: .8rem; min-height: 30px; padding: 3px 6px; }
 .pcard-group { padding: 10px 14px 4px; }
 .pcard-group + .pcard-group { border-top: 1px dashed var(--line); }
-.pcard-group.upcoming { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; font-size: .85rem; padding-bottom: 10px; background: var(--visit-soft); }
+.pcard-line { display: flex; align-items: center; gap: 6px; padding: 9px 14px; font-size: .88rem; color: var(--text); text-decoration: none; border-bottom: 1px dashed var(--line); }
+a.pcard-line:hover { background: #f8f9fc; }
+.pcard-line .line-count { margin-left: auto; font-weight: 700; }
+a.pcard-line .line-count { color: var(--danger); }
+.pcard-line .chev { color: var(--muted); margin-left: 4px; }
+.pcard-line.done { color: var(--muted); }
+.pcard-line.done::after { content: "✓"; margin-left: auto; color: var(--ok); font-weight: 700; }
+.pcard-line.upcoming { background: var(--visit-soft); }
 .pcard-sec { display: flex; align-items: center; gap: 6px; font-size: .78rem; font-weight: 700; color: #5b6578; text-decoration: none; margin-bottom: 4px; }
 .pcard-sec:hover { color: var(--accent); }
 .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
