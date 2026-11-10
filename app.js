@@ -269,6 +269,7 @@ function renderSidebar(routeKey) {
   document.getElementById('sidebar').innerHTML = `
     <a class="brand" href="#/" title="トップへ戻る">訪問歯科診療<br>新患・初診時チェックリスト</a>
     <nav class="nav">
+      ${link('#/', 'dashboard', 'トップへ戻る', badge(dashboardPatients().length), icon('dashboard'))}
       ${link('#/schedule', 'schedule', '訪問予定', '', icon('schedule'))}
     </nav>
     <div class="nav-heading">やることリスト</div>
@@ -510,13 +511,15 @@ function viewDashboard() {
     ${patientForm()}
   </section>` : ''}
 
-  ${noPatients && !ui.showAddForm ? `<section class="card panel welcome">
-    <h2>まずは新患を登録しましょう</h2>
-    <p>右上の「＋ 新患を追加する」から、患者番号と訪問先を入れると、その患者のやることリストが作られます。</p>
-    <p class="muted">画面の雰囲気を先に見たい場合は、サンプルデータを入れることもできます（あとで「設定」から消去できます）。</p>
-    <div class="btn-row">
-      <button class="btn primary" data-action="toggle-add">＋ 新患を追加する</button>
-      <button class="btn" data-action="sample">サンプルデータを入れる</button>
+  ${noPatients && !ui.showAddForm ? `<section class="card welcome">
+    <h2 class="card-band">まずは新患を登録しましょう</h2>
+    <div class="card-body">
+      <p>右上の「＋ 新患を追加する」から、患者番号と訪問先を入れると、その患者のやることリストが作られます。</p>
+      <p class="muted">画面の雰囲気を先に見たい場合は、サンプルデータを入れることもできます（あとで「設定」から消去できます）。</p>
+      <div class="btn-row">
+        <button class="btn primary" data-action="toggle-add">＋ 新患を追加する</button>
+        <button class="btn" data-action="sample">サンプルデータを入れる</button>
+      </div>
     </div>
   </section>` : ''}
 
@@ -553,12 +556,14 @@ function viewStage(sectionId) {
   const notStarted = visiblePatients().filter(p => p.status !== '終了・中止' && !reached(p, s)).length;
   return `
   <section class="card stage-head phase-${placeClass(ph.place)}">
-    <div class="stage-title">
+    <div class="stage-title card-band">
       <span class="place-tag ${placeClass(ph.place)}">${ph.title}｜${ph.place}</span>
       <h2>${esc(s.title)}</h2>
     </div>
-    <div class="muted small">担当：${esc(s.role)}　／　対象：ステータスが「${esc(s.start)}」以降の患者${notStarted ? `（まだこの段階に来ていない患者 ${notStarted}人）` : ''}</div>
-    ${s.id === 'r' ? '<div class="note-box">お知らせの内容（氏名・写真）は保存されません。作成したら必ずPDFに保存するか印刷してください。</div>' : ''}
+    <div class="card-body">
+      <div class="muted small">担当：${esc(s.role)}　／　対象：ステータスが「${esc(s.start)}」以降の患者${notStarted ? `（まだこの段階に来ていない患者 ${notStarted}人）` : ''}</div>
+      ${s.id === 'r' ? '<div class="note-box">お知らせの内容（氏名・写真）は保存されません。作成したら必ずPDFに保存するか印刷してください。</div>' : ''}
+    </div>
   </section>
 
   <section class="block">

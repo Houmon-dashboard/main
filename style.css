@@ -191,9 +191,11 @@ select:focus, input:focus, textarea:focus { outline: 2px solid var(--accent); ou
 
 .dash-top { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 16px; margin-bottom: 16px; }
 .summary { display: flex; flex-wrap: wrap; gap: 6px 20px; color: var(--muted); font-size: .9rem; flex: 1; }
-.welcome { border-left: 4px solid var(--accent); }
-.welcome h2 { margin-bottom: 6px; }
-.welcome p { margin: 4px 0 10px; }
+.card-band { margin: 0; padding: 11px 18px; font-size: 1.05rem; background: var(--accent-soft); border-bottom: 1px solid var(--line); border-radius: var(--radius) var(--radius) 0 0; }
+.card-body { padding: 12px 18px 16px; }
+.card-body p { margin: 0 0 8px; }
+.card-body .btn-row { margin-top: 12px; }
+.welcome { margin-bottom: 18px; }
 .summary strong { color: var(--text); font-size: 1.05rem; margin: 0 2px; }
 
 /* ---------- Patient cards ---------- */
@@ -247,9 +249,10 @@ a.pcard-line .line-count { color: var(--danger); }
 .status-select option { background: #fff; color: var(--text); }
 
 /* ---------- Stage page ---------- */
-.stage-head { padding: 16px 18px; margin-bottom: 18px; border-left: 4px solid var(--clinic); }
-.stage-head.phase-visit { border-left-color: var(--visit); }
-.stage-title { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px; margin-bottom: 6px; }
+.stage-head { margin-bottom: 18px; }
+.stage-head .card-band { background: #e9e1fa; }
+.stage-head.phase-visit .card-band { background: #d9ebf8; }
+.stage-title { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px; }
 .stage-title h2 { font-size: 1.1rem; }
 .done-list { padding: 12px 16px; }
 .done-list summary { cursor: pointer; font-weight: 600; color: #5b6578; }
