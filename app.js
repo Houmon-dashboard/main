@@ -275,7 +275,7 @@ function renderSidebar(routeKey) {
     <div class="nav-heading">やることリスト</div>
     ${PHASES.map(ph => `
       <div class="phase-block phase-${placeClass(ph.place)}">
-        <div class="phase-title"><span class="place-tag ${placeClass(ph.place)}">${ph.place}</span>${ph.title}</div>
+        <div class="phase-title"><span class="place-tag ${placeClass(ph.place)}">${ph.place}</span><span class="phase-name">${ph.title}</span></div>
         ${SECTIONS.filter(s => s.phase === ph.id).map(s => link(sectionHref(s), 'stage-' + s.id, s.menu, badge(counts[s.id]))).join('')}
       </div>`).join('')}
     <nav class="nav">

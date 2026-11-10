@@ -22,7 +22,7 @@
   --clinic-line: #ddd0f5;
   --radius: 6px;
   --shadow: 0 1px 2px rgba(16, 24, 40, .05), 0 1px 3px rgba(16, 24, 40, .04);
-  --sidebar-w: 268px;
+  --sidebar-w: 252px;
 }
 
 * { box-sizing: border-box; }
@@ -62,7 +62,7 @@ main { padding: 20px 28px 40px; max-width: 1280px; }
   font-weight: 700;
   font-size: 1.05rem;
   line-height: 1.45;
-  padding: 16px 18px;
+  padding: 15px;
 }
 
 .nav { display: flex; flex-direction: column; }
@@ -87,13 +87,14 @@ main { padding: 20px 28px 40px; max-width: 1280px; }
 .phase-block + .nav { border-top: 1px solid var(--side-line); }
 .phase-block.phase-clinic { background: var(--clinic-soft); }
 .phase-block.phase-visit { background: var(--visit-soft); }
-.phase-block .nav-item { padding: 9px 18px 9px 22px; font-size: .88rem; border-bottom: 1px solid #b9c0cc; }
+.phase-block .nav-item { padding: 9px 18px 9px 22px; font-size: .88rem; border-bottom: 1px solid #d5dae4; }
 .phase-block .nav-item:hover { background: rgba(255, 255, 255, .6); }
 .phase-block .nav-item.active { background: #fff; }
-.phase-title { display: flex; align-items: center; gap: 10px; font-size: 1.05rem; font-weight: 700; padding: 0 18px 0 0; }
+.phase-title { display: flex; align-items: stretch; gap: 10px; min-height: 34px; font-size: 1.05rem; font-weight: 700; padding: 0 18px 0 0; }
+.phase-name { align-self: center; }
 .phase-clinic .phase-title { background: #e9e1fa; }
 .phase-visit .phase-title { background: #d9ebf8; }
-.phase-title .place-tag { padding: 5px 10px; border-radius: 0; font-size: .75rem; }
+.phase-title .place-tag { display: flex; align-items: center; padding: 0 10px; border-radius: 0; font-size: .75rem; }
 .place-tag {
   font-size: .7rem; font-weight: 700;
   padding: 1px 7px; border-radius: 4px;
