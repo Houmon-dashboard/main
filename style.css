@@ -352,6 +352,8 @@ a.pcard-line .line-count { color: var(--danger); }
 }
 .notice-warn strong { display: block; font-size: 1rem; margin-bottom: 2px; }
 .notice-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 14px; }
+.notice-toolbar-bottom { max-width: 210mm; margin: 0 auto 24px; }
+.toolbar-actions { display: inline-flex; gap: 10px; margin-left: auto; }
 .sheet-wrap { overflow-x: auto; padding-bottom: 20px; }
 .sheet {
   width: 210mm; min-height: 297mm;

@@ -867,6 +867,14 @@ function viewNotice(pid) {
         ${line1 || line2 ? `<div>${esc(line1)}</div><div>${esc(line2)}</div>` : '<div class="no-print warn-text">医院の連絡先が未設定です（設定画面で入力できます）</div>'}
       </footer>
     </div>
+  </div>
+  <div class="notice-toolbar notice-toolbar-bottom no-print">
+    <span class="muted small">入力内容は保存されません。終わったら必ずPDFをダウンロードするか印刷してください。</span>
+    <span class="spacer"></span>
+    <span class="toolbar-actions">
+      <button class="btn" data-action="notice-print">印刷</button>
+      <button class="btn primary" data-action="notice-pdf">PDFをダウンロード</button>
+    </span>
   </div>`;
 }
 
@@ -1020,8 +1028,7 @@ async function downloadNoticePdf() {
   }
   const p = patientById(notice.pid);
   const sheet = document.querySelector('.sheet');
-  const btn = document.querySelector('[data-action="notice-pdf"]');
-  if (btn) { btn.disabled = true; btn.textContent = 'PDFを作成中…'; }
+  document.querySelectorAll('[data-action="notice-pdf"]').forEach(btn => { btn.disabled = true; btn.textContent = 'PDFを作成中…'; });
   const placeholders = [...sheet.querySelectorAll('[placeholder]')].map(el => [el, el.getAttribute('placeholder')]);
   placeholders.forEach(([el]) => el.removeAttribute('placeholder'));
   document.body.classList.add('pdf-capture');
