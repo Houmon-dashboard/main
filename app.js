@@ -773,14 +773,27 @@ function newNotice(p) {
     name: '', place: p.place === '居宅' ? '' : p.place,
     firstDate: first ? fmtDateJa(first.date) : '',
     face: null, photos: [null, null, null, null, null, null],
+    orig: {}, // トリミング前の元画像（key: 'face' | '0'〜'5'）
     checks: {}, opts: {}, cavities: '', memo: '',
   };
 }
 
 function discardNotice() {
   if (!notice) return;
-  [notice.face, ...notice.photos].forEach(u => { if (u) URL.revokeObjectURL(u); });
+  closeCrop();
+  [notice.face, ...notice.photos, ...Object.values(notice.orig)].forEach(u => { if (u) URL.revokeObjectURL(u); });
   notice = null;
+}
+
+function slotUrl(key) { return key === 'face' ? notice.face : notice.photos[Number(key)]; }
+function setSlotUrl(key, url) {
+  const old = slotUrl(key);
+  if (old && old !== url && old !== notice.orig[key]) URL.revokeObjectURL(old);
+  if (key === 'face') notice.face = url; else notice.photos[Number(key)] = url;
+}
+function removeSlot(key) {
+  setSlotUrl(key, null);
+  if (notice.orig[key]) { URL.revokeObjectURL(notice.orig[key]); delete notice.orig[key]; }
 }
 
 function viewNotice(pid) {
@@ -797,7 +810,10 @@ function viewNotice(pid) {
     return `<label class="slot${key === 'face' ? ' face' : ''}">
       <input type="file" accept="image/*" hidden data-nphoto="${key}">
       ${url ? `<img src="${url}" alt="">` : `<span class="slot-ph">${label}<small class="no-print">クリックして選択</small></span>`}
-      ${url ? `<button type="button" class="slot-del no-print" data-action="notice-del" data-slot="${key}" aria-label="写真を外す">×</button>` : ''}
+      ${url ? `<span class="slot-tools no-print">
+        <button type="button" class="slot-btn" data-action="notice-crop" data-slot="${key}" aria-label="トリミング" title="トリミング">✂</button>
+        <button type="button" class="slot-btn" data-action="notice-del" data-slot="${key}" aria-label="写真を外す" title="写真を外す">×</button>
+      </span>` : ''}
     </label>`;
   };
   const line1 = [c.name, c.tel].filter(Boolean).join('　');
@@ -807,15 +823,16 @@ function viewNotice(pid) {
   return `
   <div class="notice-warn no-print">
     <strong>この画面の内容は保存されません。</strong>
-    入力した氏名や写真は、画面を閉じたり移動したりすると消えます。必ず「PDF保存・印刷」からPDFに保存するか印刷してください。
-    印刷画面を閉じたあとの確認で「OK」を押すと「お知らせ作成済み」になり、次の段階（ケアマネへの情報共有）に進めます。
+    入力した氏名や写真は、画面を閉じたり移動したりすると消えます。必ず「PDFをダウンロード」するか「印刷」してください。
+    PDFをダウンロードすると、自動で「お知らせ作成済み」になり、次の段階（ケアマネへの情報共有）に進めます。
   </div>
   <div class="notice-toolbar no-print">
     <a href="#/notice">← 一覧へ</a>
     <span class="muted">患者番号 <strong>${esc(p.number)}</strong>${done ? '（作成済み）' : ''}</span>
     <span class="spacer"></span>
     <label class="btn">口腔内写真をまとめて選択<input type="file" accept="image/*" multiple hidden data-nphoto="multi"></label>
-    <button class="btn primary" data-action="notice-print">PDF保存・印刷</button>
+    <button class="btn" data-action="notice-print">印刷</button>
+    <button class="btn primary" data-action="notice-pdf">PDFをダウンロード</button>
   </div>
   <div class="sheet-wrap">
     <div class="sheet">
@@ -825,7 +842,13 @@ function viewNotice(pid) {
           <div class="srow"><span class="sl">患者番号</span><span class="sv">${esc(p.number)}</span>
             <span class="sl">患者氏名</span><input class="line-input" data-nfield="name" value="${esc(n.name)}" placeholder="氏名（保存されません）" autocomplete="off"></div>
           <div class="srow"><span class="sl">入居施設</span><input class="line-input" data-nfield="place" value="${esc(n.place)}" placeholder="施設名"></div>
-          <div class="srow"><span class="sl">初診日</span><input class="line-input" data-nfield="firstDate" value="${esc(n.firstDate)}" placeholder="例：2026年11月10日"></div>
+          <div class="srow"><span class="sl">初診日</span><span class="date-field">
+            <input class="line-input" data-nfield="firstDate" value="${esc(n.firstDate)}" placeholder="例：2026年11月10日">
+            <button type="button" class="cal-btn no-print" data-action="notice-cal" aria-label="カレンダーから選ぶ" title="カレンダーから選ぶ">
+              <svg viewBox="0 0 24 24" aria-hidden="true">${ICONS.schedule}</svg>
+            </button>
+            <input type="date" class="date-picker no-print" data-ndate tabindex="-1" aria-hidden="true">
+          </span></div>
         </div>
         ${slot('face', '患者顔写真')}
       </div>
@@ -849,16 +872,171 @@ function viewNotice(pid) {
 
 function setNoticePhoto(key, file) {
   if (!file || !notice) return;
+  key = String(key);
+  removeSlot(key);
   const url = URL.createObjectURL(file);
-  if (key === 'face') {
-    if (notice.face) URL.revokeObjectURL(notice.face);
-    notice.face = url;
-  } else {
-    const i = Number(key);
-    if (notice.photos[i]) URL.revokeObjectURL(notice.photos[i]);
-    notice.photos[i] = url;
-  }
+  notice.orig[key] = url;
+  setSlotUrl(key, url);
   notice.dirty = true;
+}
+
+/* ---- 写真のトリミング（ドラッグで位置、スライダー/ホイールで拡大）。結果はブラウザ内だけで保持 ---- */
+let crop = null;
+
+function openCrop(key) {
+  key = String(key);
+  const src = notice && notice.orig[key];
+  if (!src) return;
+  const aspect = key === 'face' ? 3 / 4 : 4 / 3; // 用紙の枠と同じ縦横比
+  const maxW = Math.min(520, window.innerWidth - 64);
+  const W = aspect >= 1 ? maxW : Math.min(300, maxW);
+  const H = Math.round(W / aspect);
+  const img = new Image();
+  img.onload = () => {
+    const min = Math.max(W / img.naturalWidth, H / img.naturalHeight);
+    crop = { key, img, W, H, min, zoom: 1, x: (W - img.naturalWidth * min) / 2, y: (H - img.naturalHeight * min) / 2 };
+    showCropModal();
+  };
+  img.onerror = () => alert('この画像は読み込めませんでした（HEIC形式などはブラウザで表示できません。JPGに変換してから選んでください）');
+  img.src = src;
+}
+
+function showCropModal() {
+  closeCropModalOnly();
+  const m = document.createElement('div');
+  m.className = 'crop-modal no-print';
+  m.id = 'crop-modal';
+  m.innerHTML = `<div class="crop-dialog card" role="dialog" aria-modal="true" aria-label="写真のトリミング">
+    <h2 class="card-band">写真のトリミング</h2>
+    <div class="card-body">
+      <p class="muted small">ドラッグで位置を、スライダー（またはマウスホイール）で大きさを調整できます。枠の中が用紙に入ります。</p>
+      <div class="crop-frame" id="crop-frame" style="width:${crop.W}px;height:${crop.H}px"><img id="crop-img" src="${crop.img.src}" alt="" draggable="false"></div>
+      <label class="crop-zoom"><span>縮小</span><input type="range" id="crop-zoom" min="1" max="4" step="0.01" value="${crop.zoom}"><span>拡大</span></label>
+      <div class="btn-row">
+        <button class="btn primary" type="button" data-crop="ok">決定</button>
+        <button class="btn" type="button" data-crop="reset">元に戻す</button>
+        <button class="btn ghost" type="button" data-crop="cancel">キャンセル</button>
+      </div>
+    </div>
+  </div>`;
+  document.body.appendChild(m);
+  const frame = m.querySelector('#crop-frame');
+  const slider = m.querySelector('#crop-zoom');
+  let drag = null;
+  frame.addEventListener('pointerdown', e => { drag = { px: e.clientX, py: e.clientY, x: crop.x, y: crop.y }; frame.setPointerCapture(e.pointerId); });
+  frame.addEventListener('pointermove', e => {
+    if (!drag) return;
+    crop.x = drag.x + (e.clientX - drag.px);
+    crop.y = drag.y + (e.clientY - drag.py);
+    updateCrop();
+  });
+  const end = () => { drag = null; };
+  frame.addEventListener('pointerup', end);
+  frame.addEventListener('pointercancel', end);
+  frame.addEventListener('wheel', e => {
+    e.preventDefault();
+    const r = frame.getBoundingClientRect();
+    setCropZoom(crop.zoom * (e.deltaY < 0 ? 1.1 : 1 / 1.1), e.clientX - r.left, e.clientY - r.top);
+  }, { passive: false });
+  slider.addEventListener('input', () => setCropZoom(Number(slider.value)));
+  m.addEventListener('click', e => {
+    const b = e.target.closest('[data-crop]');
+    if (e.target === m) { closeCrop(); return; }
+    if (!b) return;
+    if (b.dataset.crop === 'cancel') closeCrop();
+    else if (b.dataset.crop === 'reset') {
+      crop.zoom = 1;
+      crop.x = (crop.W - crop.img.naturalWidth * crop.min) / 2;
+      crop.y = (crop.H - crop.img.naturalHeight * crop.min) / 2;
+      slider.value = 1;
+      updateCrop();
+    } else if (b.dataset.crop === 'ok') applyCrop();
+  });
+  updateCrop();
+}
+
+function updateCrop() {
+  const s = crop.min * crop.zoom;
+  const w = crop.img.naturalWidth * s, h = crop.img.naturalHeight * s;
+  crop.x = Math.min(0, Math.max(crop.W - w, crop.x));
+  crop.y = Math.min(0, Math.max(crop.H - h, crop.y));
+  const el = document.getElementById('crop-img');
+  if (!el) return;
+  el.style.width = w + 'px';
+  el.style.height = h + 'px';
+  el.style.transform = `translate(${crop.x}px, ${crop.y}px)`;
+}
+
+function setCropZoom(z, cx = crop.W / 2, cy = crop.H / 2) {
+  const old = crop.min * crop.zoom;
+  crop.zoom = Math.min(4, Math.max(1, z));
+  const s = crop.min * crop.zoom;
+  crop.x = cx - (cx - crop.x) * s / old;
+  crop.y = cy - (cy - crop.y) * s / old;
+  const slider = document.getElementById('crop-zoom');
+  if (slider) slider.value = crop.zoom;
+  updateCrop();
+}
+
+function applyCrop() {
+  const outW = crop.W >= crop.H ? 1200 : 900;
+  const outH = Math.round(outW * crop.H / crop.W);
+  const ratio = outW / crop.W;
+  const s = crop.min * crop.zoom;
+  const canvas = document.createElement('canvas');
+  canvas.width = outW;
+  canvas.height = outH;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, outW, outH);
+  ctx.drawImage(crop.img, crop.x * ratio, crop.y * ratio, crop.img.naturalWidth * s * ratio, crop.img.naturalHeight * s * ratio);
+  const key = crop.key;
+  canvas.toBlob(blob => {
+    if (!notice || !blob) return;
+    setSlotUrl(key, URL.createObjectURL(blob));
+    notice.dirty = true;
+    closeCrop();
+    render();
+  }, 'image/jpeg', 0.92);
+}
+
+function closeCropModalOnly() { const m = document.getElementById('crop-modal'); if (m) m.remove(); }
+function closeCrop() { closeCropModalOnly(); crop = null; }
+
+/* ---- PDFを直接ダウンロード（html2canvas で用紙を画像化 → jsPDF で A4 PDF に）。すべてブラウザ内で処理 ---- */
+async function downloadNoticePdf() {
+  if (!requireUser()) return;
+  if (!window.html2canvas || !window.jspdf) {
+    alert('PDF作成の部品を読み込めませんでした。インターネット接続を確認するか、「印刷」からPDFに保存してください。');
+    return;
+  }
+  const p = patientById(notice.pid);
+  const sheet = document.querySelector('.sheet');
+  const btn = document.querySelector('[data-action="notice-pdf"]');
+  if (btn) { btn.disabled = true; btn.textContent = 'PDFを作成中…'; }
+  const placeholders = [...sheet.querySelectorAll('[placeholder]')].map(el => [el, el.getAttribute('placeholder')]);
+  placeholders.forEach(([el]) => el.removeAttribute('placeholder'));
+  document.body.classList.add('pdf-capture');
+  let ok = false;
+  try {
+    const canvas = await window.html2canvas(sheet, { scale: 2, backgroundColor: '#ffffff', logging: false });
+    const pdf = new window.jspdf.jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
+    pdf.addImage(canvas.toDataURL('image/jpeg', 0.92), 'JPEG', 0, 0, 210, 297);
+    pdf.save(`健診結果のお知らせ_${p.number}_${ymd(new Date())}.pdf`);
+    ok = true;
+  } catch (e) {
+    console.error(e);
+    alert('PDFの作成に失敗しました：' + e.message + '\n「印刷」からPDFに保存してください。');
+  } finally {
+    document.body.classList.remove('pdf-capture');
+    placeholders.forEach(([el, v]) => el.setAttribute('placeholder', v));
+  }
+  if (ok) {
+    if (!isDone(p, 'r1')) { setItem(p, 'r1', '済'); save(); }
+    notice.dirty = false;
+    toast('PDFをダウンロードしました（「お知らせ作成済み」にしました）');
+  }
+  render();
 }
 
 function printNotice() {
@@ -960,7 +1138,10 @@ document.getElementById('menu-btn').addEventListener('click', () => {
   document.body.classList.contains('menu-open') ? closeMenu() : openMenu();
 });
 document.getElementById('backdrop').addEventListener('click', closeMenu);
-document.addEventListener('keydown', e => { if (e.key === 'Escape') closeMenu(); });
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  if (crop) closeCrop(); else closeMenu();
+});
 
 document.addEventListener('input', e => {
   const el = e.target;
@@ -992,10 +1173,22 @@ document.addEventListener('change', e => {
         if (slot < 6) setNoticePhoto(String(slot), f);
       });
       if (files.length && notice.photos.every(Boolean) && files.length > 6) toast('口腔内写真は6枚までです');
-    } else {
+    } else if (files[0]) {
+      // 1枚ずつ選んだときは、そのままトリミング画面を開く
       setNoticePhoto(el.dataset.nphoto, files[0]);
+      render();
+      openCrop(el.dataset.nphoto);
+      return;
     }
     render();
+    return;
+  }
+  if (el.dataset.ndate !== undefined && notice) {
+    if (!el.value) return;
+    notice.firstDate = fmtDateJa(el.value);
+    notice.dirty = true;
+    const text = el.parentElement.querySelector('[data-nfield="firstDate"]');
+    if (text) text.value = notice.firstDate;
     return;
   }
   if (el.classList.contains('nchk') && notice) {
@@ -1094,12 +1287,18 @@ document.addEventListener('click', e => {
     save(); location.hash = '#/patients'; toast('削除しました');
   } else if (a === 'notice-del') {
     e.preventDefault();
-    const k = el.dataset.slot;
-    if (k === 'face') { URL.revokeObjectURL(notice.face); notice.face = null; }
-    else { URL.revokeObjectURL(notice.photos[k]); notice.photos[k] = null; }
+    removeSlot(el.dataset.slot);
     render();
+  } else if (a === 'notice-crop') {
+    e.preventDefault();
+    openCrop(el.dataset.slot);
+  } else if (a === 'notice-cal') {
+    const picker = el.parentElement.querySelector('[data-ndate]');
+    try { picker.showPicker(); } catch (err) { picker.focus(); picker.click(); }
   } else if (a === 'notice-print') {
     printNotice();
+  } else if (a === 'notice-pdf') {
+    downloadNoticePdf();
   } else if (a === 'export') {
     const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
     const link = document.createElement('a');
