@@ -268,17 +268,14 @@ function renderSidebar(routeKey) {
     `<a class="nav-item${routeKey === key ? ' active' : ''}" href="${href}">${ico}<span class="nav-text">${label}</span>${extra}</a>`;
 
   document.getElementById('sidebar').innerHTML = `
-    <div class="brand">
-      <span class="brand-mark">訪</span>
-      <span class="brand-text">訪問歯科<small>進捗ダッシュボード</small></span>
-    </div>
+    <div class="brand">訪問歯科診療<br>新患・初診時チェックリスト</div>
     <nav class="nav">
-      ${link('#/', 'dashboard', 'ダッシュボード', badge(pendingPatients), icon('dashboard'))}
+      ${link('#/', 'dashboard', 'トップへ戻る', badge(pendingPatients), icon('dashboard'))}
     </nav>
     <div class="nav-heading">やることリスト</div>
     ${PHASES.map(ph => `
       <div class="phase-block phase-${placeClass(ph.place)}">
-        <div class="phase-title">${ph.title}<span class="place-tag ${placeClass(ph.place)}">${ph.place}</span></div>
+        <div class="phase-title"><span class="place-tag ${placeClass(ph.place)}">${ph.place}</span>${ph.title}</div>
         ${SECTIONS.filter(s => s.phase === ph.id).map(s => link(sectionHref(s), 'stage-' + s.id, s.menu, badge(counts[s.id]))).join('')}
       </div>`).join('')}
     <nav class="nav">
