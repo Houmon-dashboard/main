@@ -607,13 +607,13 @@ function progressList() {
       ${chip('all', '全て', counts.all)}${chip('open', '未完了', counts.open)}${chip('wait', '返信待ち', counts.wait)}
     </div>
     ${list.length ? `<div class="table-wrap"><table class="table progress-table">
-      <thead><tr>${th('state', '状態')}${th('number', '患者番号')}${th('place', '訪問先')}<th>現在の進捗（次にやること）</th><th>郵送・送付</th>${th('created', '登録日')}</tr></thead>
+      <thead><tr>${th('number', '患者番号')}${th('state', '状態')}${th('place', '訪問先')}<th>現在の進捗（次にやること）</th><th>郵送・送付</th>${th('created', '登録日')}</tr></thead>
       <tbody>${list.map(p => {
         const t = nextTask(p);
         const created = p.createdAt ? ymd(new Date(p.createdAt)) : '';
         return `<tr class="row-link" data-href="#/patient/${p.id}">
-          <td class="nowrap">${stateBadge(states.get(p.id))}</td>
           <td class="nowrap">${patientLink(p)}</td>
+          <td class="nowrap">${stateBadge(states.get(p.id))}</td>
           <td class="nowrap">${esc(p.place)}</td>
           <td class="task-cell" title="${esc(t.title || t.text)}">${t.href ? `<a href="${t.href}">${esc(t.text)}</a>` : esc(t.text)}</td>
           <td class="mail-cell">${mailSummary(p)}</td>
