@@ -142,7 +142,7 @@ function normalize(s) {
 let state = load();
 const ui = {
   placeFilter: safeGet(sessionStorage, 'placeFilter') || '',
-  scheduleTab: 'today',
+  scheduleTab: 'month',
   month: ymd(new Date()).slice(0, 7),
   currentUser: safeGet(localStorage, STORE_KEY + ':user') || '',
   showAddForm: false,
@@ -375,28 +375,86 @@ function visitTable(list, { showDate }) {
   </table></div>`;
 }
 
+/* カレンダーの日付を押したときのモーダル（その日の患者一覧 → 患者ページへ） */
+function openDayModal(date) {
+  closeDayModal();
+  const list = calendarEvents(date, date)[date] || [];
+  const visits = list.filter(e => e.type === 'visit').sort((a, b) => (a.v.time || '99').localeCompare(b.v.time || '99'));
+  const others = list.filter(e => e.type !== 'visit');
+  const nameOf = p => (p && localNames[p.id]) ? `<span class="muted small">${esc(localNames[p.id])}</span>` : '';
+  const m = document.createElement('div');
+  m.className = 'day-modal no-print';
+  m.id = 'day-modal';
+  m.innerHTML = `<div class="day-dialog card" role="dialog" aria-modal="true" aria-labelledby="day-modal-title">
+    <div class="card-band day-modal-head">
+      <h2 id="day-modal-title">${fmtDateJa(date)}（${WD[parseYmd(date).getDay()]}）</h2>
+      <button type="button" class="day-close" data-day="close" aria-label="閉じる">×</button>
+    </div>
+    <div class="card-body">
+      <h3 class="day-sub">訪問 <span class="muted small">${visits.length}件</span></h3>
+      ${visits.length ? `<ul class="day-list">${visits.map(e => `<li>
+        <a class="day-row" href="#/patient/${e.p ? e.p.id : ''}">
+          <span class="day-time">${esc(e.v.time || '—')}</span>
+          <span class="pno">${esc(e.p ? e.p.number : '?')}</span>
+          ${nameOf(e.p)}
+          <span class="kind kind-${VISIT_KINDS.indexOf(e.v.kind)}">${esc(e.v.kind)}</span>
+          <span class="muted small">${esc(placeLabel(e.p))}${e.v.staff ? '・' + esc(e.v.staff) : ''}</span>
+          ${e.v.done ? '<span class="done-mini">実施済</span>' : ''}
+          <span class="chev">›</span>
+        </a></li>`).join('')}</ul>` : '<p class="empty">この日の訪問はありません</p>'}
+      ${others.length ? `<h3 class="day-sub">郵送・送付／返信待ち</h3>
+      <ul class="day-list">${others.map(e => `<li>
+        <a class="day-row" href="#/patient/${e.p.id}">
+          <span class="pno">${esc(e.p.number)}</span>
+          ${nameOf(e.p)}
+          <span class="cal-item ${e.cls}">${e.type === 'mail' ? '郵送・送付' : '返信待ち'}</span>
+          <span class="small">${esc(e.label)}</span>
+          <span class="chev">›</span>
+        </a></li>`).join('')}</ul>` : ''}
+      <div class="btn-row">
+        <button type="button" class="btn" data-day="open-daily">この日の訪問一覧（印刷用）を開く</button>
+        <button type="button" class="btn ghost" data-day="close">閉じる</button>
+      </div>
+    </div>
+  </div>`;
+  document.body.appendChild(m);
+  m.addEventListener('click', e => {
+    if (e.target === m || e.target.closest('[data-day="close"]')) { closeDayModal(); return; }
+    if (e.target.closest('[data-day="open-daily"]')) {
+      ui.day = date;
+      closeDayModal();
+      if (location.hash === '#/schedule') { render(); window.scrollTo(0, 0); } else location.hash = '#/schedule';
+    }
+  });
+  const closeBtn = m.querySelector('.day-close');
+  if (closeBtn) closeBtn.focus();
+}
+function closeDayModal() { const m = document.getElementById('day-modal'); if (m) m.remove(); }
+
+/* カレンダー／日付モーダル共通：期間内の予定（訪問・郵送/送付・返信待ちにした日）を日付ごとにまとめる */
+function calendarEvents(from, to) {
+  const byDate = {};
+  const push = (date, ev) => { if (date >= from && date <= to) (byDate[date] = byDate[date] || []).push(ev); };
+  visitsBetween(from, to).forEach(v => {
+    const p = patientById(v.patientId);
+    push(v.date, { type: 'visit', v, p, cls: `kind-${VISIT_KINDS.indexOf(v.kind)}${v.done ? ' is-done' : ''}`, text: `${p ? p.number : '?'} ${v.kind}` });
+  });
+  visiblePatients().forEach(p => {
+    (p.mails || []).forEach(mm => push(mm.date, { type: 'mail', p, label: mm.type, cls: 'ev-mail', text: `${p.number} ${mm.type.replace(/（.*?）/g, '')}` }));
+    ALL_ITEMS.filter(i => itemValue(p, i.id) === '後日返信待ち').forEach(i => {
+      const at = p.checklist[i.id].at;
+      if (at) push(ymd(new Date(at)), { type: 'wait', p, label: shortLabel(i), cls: 'ev-wait', text: `${p.number} ${shortLabel(i)}待ち` });
+    });
+  });
+  return byDate;
+}
+
 function monthCalendar() {
   const [y, m] = ui.month.split('-').map(Number);
   const first = new Date(y, m - 1, 1);
   const start = startOfWeek(first);
   const last = new Date(y, m, 0);
-  const from = ymd(start), to = ymd(addDays(start, 41));
-  const byDate = {};
-  const push = (date, ev) => { if (date >= from && date <= to) (byDate[date] = byDate[date] || []).push(ev); };
-  // 訪問（初診・再診）
-  visitsBetween(from, to).forEach(v => {
-    const p = patientById(v.patientId);
-    push(v.date, { cls: `kind-${VISIT_KINDS.indexOf(v.kind)}${v.done ? ' is-done' : ''}`, p, text: `${p ? p.number : '?'} ${v.kind}`, title: `${v.time || ''} ${placeLabel(p)} ${v.kind} ${v.staff || ''}` });
-  });
-  visiblePatients().forEach(p => {
-    // 郵送・送付
-    (p.mails || []).forEach(mm => push(mm.date, { cls: 'ev-mail', p, text: `${p.number} ${mm.type.replace(/（.*?）/g, '')}`, title: `${mm.type}（郵送・送付）` }));
-    // 返信待ちにした日
-    ALL_ITEMS.filter(i => itemValue(p, i.id) === '後日返信待ち').forEach(i => {
-      const at = p.checklist[i.id].at;
-      if (at) push(ymd(new Date(at)), { cls: 'ev-wait', p, text: `${p.number} ${shortLabel(i)}待ち`, title: `${i.label}（後日返信待ち）` });
-    });
-  });
+  const byDate = calendarEvents(ymd(start), ymd(addDays(start, 41)));
   const today = ymd(new Date());
   let cells = '';
   for (let i = 0; i < 42; i++) {
@@ -405,11 +463,11 @@ function monthCalendar() {
     const key = ymd(d);
     const list = byDate[key] || [];
     const other = d.getMonth() !== m - 1;
-    cells += `<div class="cal-cell${other ? ' other' : ''}${key === today ? ' today' : ''}${d.getDay() === 0 ? ' sun' : ''}${d.getDay() === 6 ? ' sat' : ''}">
-      <div class="cal-day">${d.getDate()}</div>
-      ${list.slice(0, 3).map(ev => `<a class="cal-item ${ev.cls}" href="#/patient/${ev.p ? ev.p.id : ''}" title="${esc(ev.title)}">${esc(ev.text.trim())}</a>`).join('')}
-      ${list.length > 3 ? `<span class="cal-more" title="${esc(list.slice(3).map(ev => ev.text.trim()).join(' / '))}">他${list.length - 3}件</span>` : ''}
-    </div>`;
+    cells += `<button type="button" class="cal-cell${other ? ' other' : ''}${key === today ? ' today' : ''}${d.getDay() === 0 ? ' sun' : ''}${d.getDay() === 6 ? ' sat' : ''}" data-action="cal-day" data-date="${key}" aria-label="${fmtDateJa(key)}の予定を見る（${list.length}件）">
+      <span class="cal-day">${d.getDate()}</span>
+      ${list.slice(0, 3).map(ev => `<span class="cal-item ${ev.cls}">${esc(ev.text)}</span>`).join('')}
+      ${list.length > 3 ? `<span class="cal-more">他${list.length - 3}件</span>` : ''}
+    </button>`;
   }
   return `<div class="cal-head">
       <button class="btn small" data-action="month-prev">‹ 前月</button>
@@ -549,15 +607,15 @@ function progressList() {
       ${chip('all', '全て', counts.all)}${chip('open', '未完了', counts.open)}${chip('wait', '返信待ち', counts.wait)}
     </div>
     ${list.length ? `<div class="table-wrap"><table class="table progress-table">
-      <thead><tr>${th('number', '患者番号')}${th('place', '訪問先')}<th>現在の進捗（次にやること）</th>${th('state', '状態')}<th>郵送・送付</th>${th('created', '登録日')}</tr></thead>
+      <thead><tr>${th('state', '状態')}${th('number', '患者番号')}${th('place', '訪問先')}<th>現在の進捗（次にやること）</th><th>郵送・送付</th>${th('created', '登録日')}</tr></thead>
       <tbody>${list.map(p => {
         const t = nextTask(p);
         const created = p.createdAt ? ymd(new Date(p.createdAt)) : '';
         return `<tr class="row-link" data-href="#/patient/${p.id}">
+          <td class="nowrap">${stateBadge(states.get(p.id))}</td>
           <td class="nowrap">${patientLink(p)}</td>
           <td class="nowrap">${esc(p.place)}</td>
           <td class="task-cell" title="${esc(t.title || t.text)}">${t.href ? `<a href="${t.href}">${esc(t.text)}</a>` : esc(t.text)}</td>
-          <td class="nowrap">${stateBadge(states.get(p.id))}</td>
           <td class="mail-cell">${mailSummary(p)}</td>
           <td class="nowrap muted">${created ? shortMd(created) : ''}</td>
         </tr>`;
@@ -1251,6 +1309,7 @@ window.addEventListener('hashchange', () => {
     discardNotice();
   }
   lastHash = location.hash;
+  closeDayModal();
   closeMenu();
   render();
   window.scrollTo(0, 0);
@@ -1283,7 +1342,9 @@ document.getElementById('menu-btn').addEventListener('click', () => {
 document.getElementById('backdrop').addEventListener('click', closeMenu);
 document.addEventListener('keydown', e => {
   if (e.key !== 'Escape') return;
-  if (crop) closeCrop(); else closeMenu();
+  if (crop) closeCrop();
+  else if (document.getElementById('day-modal')) closeDayModal();
+  else closeMenu();
 });
 
 document.addEventListener('input', e => {
@@ -1422,7 +1483,8 @@ document.addEventListener('click', e => {
   const el = e.target.closest('[data-action]');
   if (!el || el.tagName === 'SELECT' || el.type === 'checkbox' || el.type === 'file' || el.type === 'text' || el.tagName === 'TEXTAREA') return;
   const a = el.dataset.action;
-  if (a === 'list-filter') { ui.listFilter = el.dataset.filter; render(); }
+  if (a === 'cal-day') { openDayModal(el.dataset.date); }
+  else if (a === 'list-filter') { ui.listFilter = el.dataset.filter; render(); }
   else if (a === 'list-sort') {
     const k = el.dataset.key;
     ui.listSort = ui.listSort.key === k ? { key: k, dir: -ui.listSort.dir } : { key: k, dir: 1 };
