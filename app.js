@@ -928,11 +928,107 @@ function viewSettings() {
     <p class="muted">テスト版ではデータがこのブラウザ内だけに保存されます。別の端末に移すときは書き出し → 読み込みを使ってください。</p>
     <div class="btn-row">
       <button class="btn" data-action="export">データを書き出す（JSON）</button>
-      <label class="btn">データを読み込む<input type="file" accept="application/json" data-action="import" hidden></label>
+      <label class="btn primary">読み込んで追加（マージ）<input type="file" accept="application/json" data-action="import-merge" hidden></label>
+      <label class="btn">読み込んで置き換え<input type="file" accept="application/json" data-action="import" hidden></label>
       <button class="btn" data-action="sample">サンプルデータを入れる</button>
       <button class="btn danger" data-action="reset">全データを消去</button>
     </div>
+    <ul class="muted small data-help">
+      <li><strong>読み込んで追加（マージ）</strong>：別の端末で書き出したデータを、今のデータに足し合わせます。患者番号が同じ患者は1人にまとめ、チェック項目は新しく入力した方を残します。</li>
+      <li><strong>読み込んで置き換え</strong>：今のデータを消して、読み込んだデータだけにします。</li>
+      <li>氏名（このPCだけに保存したもの）は書き出し・読み込みの対象外です。</li>
+    </ul>
+    ${(() => {
+      const b = mergeBackup();
+      return b ? `<div class="note-box merge-undo">
+        直前のマージ（${fmtDateTime(b.at)}）の前の状態に戻せます。
+        <button class="btn small" data-action="merge-undo">マージ前に戻す</button>
+      </div>` : '';
+    })()}
   </section>`;
+}
+
+/* ---------------- データのマージ（複数端末のテストデータをまとめる） ----------------
+ * - 患者は「患者番号」が同じなら同一人物としてまとめる
+ * - チェック項目は項目ごとに入力日時が新しい方を採用
+ * - ステータス・メモ・担当・訪問先・備考は、患者の最終更新が新しい方を採用
+ * - 訪問予定・郵送/送付の記録・変更履歴は重複を除いて足し合わせる
+ * - 同じファイルを2回読み込んでも結果は変わらない */
+const MERGE_BACKUP_KEY = STORE_KEY + ':before-merge';
+
+function mergeData(base, incoming) {
+  const out = JSON.parse(JSON.stringify(base));
+  const inc = normalize(JSON.parse(JSON.stringify(incoming)));
+  const sum = { added: 0, merged: 0, items: 0, visits: 0, mails: 0 };
+
+  const union = (a, b) => [...a, ...b.filter(x => !a.includes(x))];
+  out.settings.facilities = union(out.settings.facilities, inc.settings.facilities);
+  out.settings.staff = union(out.settings.staff, inc.settings.staff);
+  out.settings.mailTypes = union(out.settings.mailTypes, inc.settings.mailTypes);
+  Object.keys(out.settings.clinic).forEach(k => { if (!out.settings.clinic[k] && inc.settings.clinic[k]) out.settings.clinic[k] = inc.settings.clinic[k]; });
+
+  const idMap = {};
+  const byNumber = new Map(out.patients.map(p => [p.number, p]));
+  const usedIds = new Set(out.patients.map(p => p.id));
+  inc.patients.forEach(ip => {
+    ip.checklist = ip.checklist || {};
+    ip.mails = ip.mails || [];
+    const local = byNumber.get(ip.number);
+    if (!local) {
+      const np = JSON.parse(JSON.stringify(ip));
+      if (usedIds.has(np.id)) np.id = uid();
+      usedIds.add(np.id);
+      idMap[ip.id] = np.id;
+      out.patients.push(np);
+      byNumber.set(np.number, np);
+      sum.added++;
+      return;
+    }
+    idMap[ip.id] = local.id;
+    sum.merged++;
+    local.checklist = local.checklist || {};
+    Object.entries(ip.checklist).forEach(([k, e]) => {
+      const cur = local.checklist[k];
+      if (!cur || (e.at || '') > (cur.at || '')) {
+        if (!cur || cur.value !== e.value) sum.items++;
+        local.checklist[k] = e;
+      }
+    });
+    local.mails = local.mails || [];
+    ip.mails.forEach(m => {
+      if (!local.mails.some(x => x.id === m.id || (x.type === m.type && x.date === m.date))) { local.mails.push(m); sum.mails++; }
+    });
+    if ((ip.updatedAt || '') > (local.updatedAt || '')) {
+      ['status', 'memo', 'staff', 'place', 'remarks'].forEach(f => { if (ip[f] !== undefined) local[f] = ip[f]; });
+      local.updatedAt = ip.updatedAt;
+    }
+    if (ip.createdAt && (!local.createdAt || ip.createdAt < local.createdAt)) local.createdAt = ip.createdAt;
+  });
+
+  inc.visits.forEach(v0 => {
+    const pid = idMap[v0.patientId];
+    if (!pid) return;
+    const v = { ...v0, patientId: pid };
+    const dup = out.visits.find(x => x.id === v.id || (x.patientId === pid && x.date === v.date && (x.time || '') === (v.time || '') && x.kind === v.kind));
+    if (dup) { dup.done = !!(dup.done || v.done); return; }
+    out.visits.push(v);
+    sum.visits++;
+  });
+
+  const logKey = l => `${l.at}|${l.by}|${l.pid}|${l.text}`;
+  const seen = new Set(out.log.map(logKey));
+  inc.log.forEach(l => {
+    const nl = { ...l, pid: idMap[l.pid] || l.pid };
+    if (!seen.has(logKey(nl))) { out.log.push(nl); seen.add(logKey(nl)); }
+  });
+  out.log.sort((a, b) => (b.at || '').localeCompare(a.at || ''));
+  if (out.log.length > 1000) out.log.length = 1000;
+
+  return { data: out, sum };
+}
+
+function mergeBackup() {
+  try { const raw = localStorage.getItem(MERGE_BACKUP_KEY); return raw ? JSON.parse(raw) : null; } catch (e) { return null; }
 }
 
 function viewNotFound() {
@@ -1423,11 +1519,11 @@ document.addEventListener('change', e => {
   } else if (a === 'patient-memo') {
     const p = patientById(el.dataset.id);
     if (!requireUser()) { el.value = p.memo || ''; return; }
-    if ((p.memo || '') !== el.value) { addLog(p.id, `メモ：「${el.value}」`); p.memo = el.value; save(); toast('メモを保存しました'); }
+    if ((p.memo || '') !== el.value) { addLog(p.id, `メモ：「${el.value}」`); p.memo = el.value; p.updatedAt = nowIso(); save(); toast('メモを保存しました'); }
   } else if (a === 'patient-remarks') {
     const p = patientById(el.dataset.id);
     if (!requireUser()) { el.value = p.remarks || ''; return; }
-    p.remarks = el.value; addLog(p.id, '備考・特記事項を更新'); save(); toast('備考を保存しました');
+    p.remarks = el.value; p.updatedAt = nowIso(); addLog(p.id, '備考・特記事項を更新'); save(); toast('備考を保存しました');
   } else if (a === 'item') {
     if (!requireUser()) { render(); return; }
     setItem(patientById(el.dataset.pid), el.dataset.item, el.value);
@@ -1440,6 +1536,34 @@ document.addEventListener('change', e => {
     addLog(v.patientId, `${fmtDate(v.date)} ${v.kind}：${v.done ? '実施済' : '未実施に戻す'}`);
     if (v.done && v.kind === '初診' && p && statusIdx(p.status) < statusIdx('初診済・医院処理中')) setStatus(p, '初診済・医院処理中');
     save(); render();
+  } else if (a === 'import-merge') {
+    const file = el.files[0];
+    el.value = '';
+    if (!file) return;
+    file.text().then(txt => {
+      const data = JSON.parse(txt);
+      if (!data || !Array.isArray(data.patients) || !Array.isArray(data.visits)) throw new Error('形式が違います');
+      const { data: merged, sum } = mergeData(state, data);
+      const msg = `「${file.name}」を今のデータに追加（マージ）します。
+
+` +
+        `・新しく追加される患者：${sum.added}人
+` +
+        `・患者番号が同じでまとめられる患者：${sum.merged}人
+` +
+        `・内容が更新されるチェック項目：${sum.items}件
+` +
+        `・追加される訪問予定：${sum.visits}件
+` +
+        `・追加される郵送・送付の記録：${sum.mails}件
+
+` +
+        `マージしますか？（あとで「マージ前に戻す」で元に戻せます）`;
+      if (!confirm(msg)) return;
+      try { localStorage.setItem(MERGE_BACKUP_KEY, JSON.stringify({ at: nowIso(), state })); } catch (e) { /* 容量不足時は戻せない */ }
+      state = merged;
+      save(); render(); toast(`マージしました（追加 ${sum.added}人・まとめ ${sum.merged}人）`);
+    }).catch(err => alert('読み込みに失敗しました：' + err.message));
   } else if (a === 'import') {
     const file = el.files[0];
     if (!file) return;
@@ -1496,6 +1620,12 @@ document.addEventListener('click', e => {
     document.body.classList.add('print-daily');
     window.print();
     setTimeout(() => document.body.classList.remove('print-daily'), 500);
+  } else if (a === 'merge-undo') {
+    const b = mergeBackup();
+    if (!b || !confirm(`${fmtDateTime(b.at)} のマージ前の状態に戻します。それ以降の入力も消えます。よろしいですか？`)) return;
+    state = normalize(b.state);
+    try { localStorage.removeItem(MERGE_BACKUP_KEY); } catch (e) { /* ignore */ }
+    save(); render(); toast('マージ前の状態に戻しました');
   } else if (a === 'mail-delete') {
     const p = patientById(el.dataset.pid);
     const m = (p.mails || []).find(x => x.id === el.dataset.mid);
