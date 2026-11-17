@@ -120,6 +120,8 @@ function defaultState() {
       facilities: ['施設A', '施設B', '施設C', '施設D'],
       staff: ['院長', '歯科衛生士1', '歯科衛生士2', '事務'],
       clinic: { name: '', tel: '', visitTel: '', fax: '', mobile: '' },
+      // 郵送・送付する書類の種類（院内で確認後に設定画面から変更できる）
+      mailTypes: ['契約書の控え', '重要事項説明書の控え', '健診結果のお知らせ（ケアマネ宛て）'],
     },
     patients: [],
     visits: [],
@@ -129,10 +131,12 @@ function defaultState() {
 
 function normalize(s) {
   const d = defaultState();
-  return {
+  const n = {
     ...d, ...s,
     settings: { ...d.settings, ...(s.settings || {}), clinic: { ...d.settings.clinic, ...((s.settings || {}).clinic || {}) } },
   };
+  n.patients = (n.patients || []).map(p => ({ mails: [], ...p }));
+  return n;
 }
 
 let state = load();
@@ -142,7 +146,23 @@ const ui = {
   month: ymd(new Date()).slice(0, 7),
   currentUser: safeGet(localStorage, STORE_KEY + ':user') || '',
   showAddForm: false,
+  listFilter: 'open',
+  listSort: { key: 'number', dir: 1 },
+  day: ymd(new Date()),
+  firstOnly: false,
 };
+
+/* 氏名はこのPCのブラウザにだけ保存（サーバーにもデータ書き出しにも含めない）。key は患者の内部ID */
+const NAMES_KEY = STORE_KEY + ':local-names';
+let localNames = (() => { try { return JSON.parse(localStorage.getItem(NAMES_KEY) || '{}'); } catch (e) { return {}; } })();
+function saveLocalNames() { try { localStorage.setItem(NAMES_KEY, JSON.stringify(localNames)); } catch (e) { /* ignore */ } }
+
+/* 患者番号は 7000 からの連番 */
+const FIRST_PATIENT_NUMBER = 7000;
+function nextPatientNumber() {
+  const nums = state.patients.map(p => Number(p.number)).filter(n => Number.isInteger(n) && n >= FIRST_PATIENT_NUMBER);
+  return String(nums.length ? Math.max(...nums) + 1 : FIRST_PATIENT_NUMBER);
+}
 
 function safeGet(store, key) { try { return store.getItem(key); } catch (e) { return null; } }
 function safeSet(store, key, v) { try { store.setItem(key, v); } catch (e) { /* ignore */ } }
@@ -360,9 +380,23 @@ function monthCalendar() {
   const first = new Date(y, m - 1, 1);
   const start = startOfWeek(first);
   const last = new Date(y, m, 0);
-  const visits = visitsBetween(ymd(start), ymd(addDays(start, 41)));
+  const from = ymd(start), to = ymd(addDays(start, 41));
   const byDate = {};
-  visits.forEach(v => { (byDate[v.date] = byDate[v.date] || []).push(v); });
+  const push = (date, ev) => { if (date >= from && date <= to) (byDate[date] = byDate[date] || []).push(ev); };
+  // 訪問（初診・再診）
+  visitsBetween(from, to).forEach(v => {
+    const p = patientById(v.patientId);
+    push(v.date, { cls: `kind-${VISIT_KINDS.indexOf(v.kind)}${v.done ? ' is-done' : ''}`, p, text: `${p ? p.number : '?'} ${v.kind}`, title: `${v.time || ''} ${placeLabel(p)} ${v.kind} ${v.staff || ''}` });
+  });
+  visiblePatients().forEach(p => {
+    // 郵送・送付
+    (p.mails || []).forEach(mm => push(mm.date, { cls: 'ev-mail', p, text: `${p.number} ${mm.type.replace(/（.*?）/g, '')}`, title: `${mm.type}（郵送・送付）` }));
+    // 返信待ちにした日
+    ALL_ITEMS.filter(i => itemValue(p, i.id) === '後日返信待ち').forEach(i => {
+      const at = p.checklist[i.id].at;
+      if (at) push(ymd(new Date(at)), { cls: 'ev-wait', p, text: `${p.number} ${shortLabel(i)}待ち`, title: `${i.label}（後日返信待ち）` });
+    });
+  });
   const today = ymd(new Date());
   let cells = '';
   for (let i = 0; i < 42; i++) {
@@ -373,10 +407,8 @@ function monthCalendar() {
     const other = d.getMonth() !== m - 1;
     cells += `<div class="cal-cell${other ? ' other' : ''}${key === today ? ' today' : ''}${d.getDay() === 0 ? ' sun' : ''}${d.getDay() === 6 ? ' sat' : ''}">
       <div class="cal-day">${d.getDate()}</div>
-      ${list.map(v => {
-        const p = patientById(v.patientId);
-        return `<a class="cal-item kind-${VISIT_KINDS.indexOf(v.kind)}${v.done ? ' is-done' : ''}" href="#/patient/${p ? p.id : ''}" title="${esc(placeLabel(p))} ${esc(p ? p.number : '')} ${esc(v.kind)} ${esc(v.staff || '')}">${esc(v.time || '')} ${esc(p ? p.number : '?')}</a>`;
-      }).join('')}
+      ${list.slice(0, 3).map(ev => `<a class="cal-item ${ev.cls}" href="#/patient/${ev.p ? ev.p.id : ''}" title="${esc(ev.title)}">${esc(ev.text.trim())}</a>`).join('')}
+      ${list.length > 3 ? `<span class="cal-more" title="${esc(list.slice(3).map(ev => ev.text.trim()).join(' / '))}">他${list.length - 3}件</span>` : ''}
     </div>`;
   }
   return `<div class="cal-head">
@@ -384,6 +416,8 @@ function monthCalendar() {
       <strong>${y}年${m}月</strong>
       <button class="btn small" data-action="month-next">次月 ›</button>
       <button class="btn small ghost" data-action="month-today">今月</button>
+      <span class="spacer"></span>
+      <span class="cal-legend"><span class="cal-item kind-0">初診</span><span class="cal-item kind-1">再診</span><span class="cal-item ev-mail">郵送・送付</span><span class="cal-item ev-wait">返信待ち</span></span>
     </div>
     <div class="cal">
       ${['月', '火', '水', '木', '金', '土', '日'].map(w => `<div class="cal-wd">${w}</div>`).join('')}
@@ -445,56 +479,97 @@ function dashboardOpenCount(p) {
 }
 function dashboardPatients() { return visiblePatients().filter(p => dashboardOpenCount(p) > 0); }
 
-function dashCard(p) {
-  const rows = [];
-  const doneLine = ph => `<div class="pcard-line done"><span class="dot ${placeClass(ph.place)}"></span>${ph.title}：完了</div>`;
-  PHASES.forEach(ph => {
-    const groups = SECTIONS.filter(s => s.phase === ph.id).map(s => ({ s, items: sectionOpen(p, s) }));
-    const openCount = groups.reduce((n, g) => n + g.items.length, 0);
-    if (ph.id === 'pre') {
-      const first = groups.find(g => g.items.length);
-      rows.push(openCount
-        ? `<a class="pcard-line" href="${sectionHref(first.s)}"><span class="dot ${placeClass(ph.place)}"></span>${ph.title}の確認<span class="line-count">残り${openCount}項目</span><span class="chev">›</span></a>`
-        : doneLine(ph));
-      return;
+function firstVisitOf(p) {
+  return state.visits.filter(v => v.patientId === p.id && v.kind === '初診').sort((a, b) => (a.date + (a.time || '')).localeCompare(b.date + (b.time || '')))[0];
+}
+
+/* 進捗一覧の「状態」 */
+const PROGRESS_STATES = ['未対応', '対応中', '返信待ち', '完了', '終了'];
+function progressState(p) {
+  if (p.status === '終了・中止') return '終了';
+  if (ALL_ITEMS.every(i => isDone(p, i.id))) return '完了';
+  if (ALL_ITEMS.some(i => itemValue(p, i.id) === '後日返信待ち')) return '返信待ち';
+  return Object.keys(p.checklist).length ? '対応中' : '未対応';
+}
+function isOpenState(s) { return s !== '完了' && s !== '終了'; }
+
+/* 「現在の進捗」＝次にやるべき項目を1つ */
+function nextTask(p) {
+  if (p.status === '終了・中止') return { text: '終了・中止' };
+  const firstOpen = phaseIds => {
+    for (const s of SECTIONS.filter(x => phaseIds.includes(x.phase))) {
+      const open = sectionOpen(p, s);
+      if (open.length) return { text: `${s.menu}｜${shortLabel(open[0])}`, href: sectionHref(s), title: open[0].label };
     }
-    if (!afterFirstVisit(p)) {
-      if (ph.id === 'day') {
-        const fv = state.visits.filter(v => v.patientId === p.id && v.kind === '初診').sort((a, b) => a.date.localeCompare(b.date))[0];
-        rows.push(`<div class="pcard-line upcoming"><span class="dot visit"></span>初診日<span class="line-count">${fv ? `${fmtDate(fv.date)}${fv.time ? ' ' + esc(fv.time) : ''} 予定` : '未定'}</span></div>`);
-      }
-      return;
-    }
-    if (!openCount) { rows.push(doneLine(ph)); return; }
-    groups.filter(g => g.items.length).forEach(({ s, items }) => {
-      rows.push(`<div class="pcard-group">
-        <a class="pcard-sec" href="${sectionHref(s)}"><span class="dot ${placeClass(ph.place)}"></span>${ph.title}｜${esc(s.menu)}</a>
-        <ul class="todo">${items.map(i => {
-          const v = itemValue(p, i.id);
-          const wait = waitingDeps(p, i).length;
-          return `<li${v === '後日返信待ち' ? ' class="pending"' : ''}>${esc(shortLabel(i))}${v === '後日返信待ち' ? '<em class="tag-pending">返信待ち</em>' : ''}${wait ? '<em class="tag-wait">待ち</em>' : ''}</li>`;
-        }).join('')}</ul>
-      </div>`);
-    });
-  });
-  return `<article class="card pcard">
-    <header class="pcard-head">
-      ${patientLink(p)}
-      ${badge(dashboardOpenCount(p))}
-      <span class="spacer"></span>
-      ${statusSelect(p)}
-    </header>
-    ${rows.join('')}
-    <footer class="pcard-foot">${memoInput(p)}</footer>
-  </article>`;
+    return null;
+  };
+  const pre = firstOpen(['pre']);
+  if (pre) return pre;
+  if (!afterFirstVisit(p)) {
+    const fv = firstVisitOf(p);
+    return { text: fv ? `初診日 ${fmtDate(fv.date)}${fv.time ? ' ' + fv.time : ''} 予定` : '初診日の調整' };
+  }
+  return firstOpen(['day', 'post']) || { text: 'すべて完了' };
+}
+
+function mailRecords(p) { return (p.mails || []).slice().sort((a, b) => a.date.localeCompare(b.date)); }
+function shortMd(dateStr) { const d = parseYmd(dateStr); return `${d.getMonth() + 1}/${d.getDate()}`; }
+function mailSummary(p) {
+  const list = mailRecords(p);
+  if (!list.length) return '<span class="muted">—</span>';
+  return list.map(m => `<div class="nowrap" title="${esc(m.type)}">${esc(m.type.replace(/（.*?）/g, ''))} <span class="muted">${shortMd(m.date)}</span></div>`).join('');
+}
+
+function stateBadge(s) { return `<span class="state state-${PROGRESS_STATES.indexOf(s)}">${s}</span>`; }
+
+function progressList() {
+  const all = visiblePatients();
+  const states = new Map(all.map(p => [p.id, progressState(p)]));
+  const counts = {
+    all: all.length,
+    open: all.filter(p => isOpenState(states.get(p.id))).length,
+    wait: all.filter(p => states.get(p.id) === '返信待ち').length,
+  };
+  const list = all.filter(p => ui.listFilter === 'all' || (ui.listFilter === 'open' ? isOpenState(states.get(p.id)) : states.get(p.id) === '返信待ち'));
+  const { key, dir } = ui.listSort;
+  const order = places();
+  const cmp = {
+    number: (a, b) => a.number.localeCompare(b.number, 'ja', { numeric: true }),
+    place: (a, b) => order.indexOf(a.place) - order.indexOf(b.place),
+    state: (a, b) => PROGRESS_STATES.indexOf(states.get(a.id)) - PROGRESS_STATES.indexOf(states.get(b.id)),
+    created: (a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''),
+  }[key];
+  list.sort((a, b) => (cmp(a, b) || a.number.localeCompare(b.number, 'ja', { numeric: true })) * dir);
+  const th = (k, label) => `<th><button class="sort-btn${key === k ? ' on' : ''}" data-action="list-sort" data-key="${k}">${label}${key === k ? (dir > 0 ? ' ▲' : ' ▼') : ''}</button></th>`;
+  const chip = (f, label, n) => `<button class="chip${ui.listFilter === f ? ' on' : ''}" data-action="list-filter" data-filter="${f}">${label} (${n})</button>`;
+  return `<section class="card panel">
+    <div class="panel-head"><h2>進捗一覧</h2></div>
+    <div class="list-filters">
+      <span class="muted small">状態：</span>
+      ${chip('all', '全て', counts.all)}${chip('open', '未完了', counts.open)}${chip('wait', '返信待ち', counts.wait)}
+    </div>
+    ${list.length ? `<div class="table-wrap"><table class="table progress-table">
+      <thead><tr>${th('number', '患者番号')}${th('place', '訪問先')}<th>現在の進捗（次にやること）</th>${th('state', '状態')}<th>郵送・送付</th>${th('created', '登録日')}</tr></thead>
+      <tbody>${list.map(p => {
+        const t = nextTask(p);
+        const created = p.createdAt ? ymd(new Date(p.createdAt)) : '';
+        return `<tr class="row-link" data-href="#/patient/${p.id}">
+          <td class="nowrap">${patientLink(p)}</td>
+          <td class="nowrap">${esc(p.place)}</td>
+          <td class="task-cell" title="${esc(t.title || t.text)}">${t.href ? `<a href="${t.href}">${esc(t.text)}</a>` : esc(t.text)}</td>
+          <td class="nowrap">${stateBadge(states.get(p.id))}</td>
+          <td class="mail-cell">${mailSummary(p)}</td>
+          <td class="nowrap muted">${created ? shortMd(created) : ''}</td>
+        </tr>`;
+      }).join('')}</tbody></table></div>` : `<p class="empty">${all.length ? '該当する患者はいません' : '患者が登録されていません'}</p>`}
+    <p class="muted small list-hint">行をクリックすると患者詳細へ。列見出しで並び替えできます。</p>
+  </section>`;
 }
 
 function viewDashboard() {
-  const pts = dashboardPatients();
   const t = ymd(new Date());
   const tm = ymd(addDays(new Date(), 1));
   const waitingDocs = visiblePatients().reduce((n, p) => n + ALL_ITEMS.filter(i => itemValue(p, i.id) === '後日返信待ち').length, 0);
-  const groups = groupByPlace(pts);
   const noPatients = !state.patients.length;
   return `
   <div class="dash-top">
@@ -523,14 +598,7 @@ function viewDashboard() {
     </div>
   </section>` : ''}
 
-  <section class="block">
-    <div class="block-head"><h2>未完了項目一覧</h2>${badge(pts.length)}<span class="muted">終わっていない項目がある患者</span></div>
-    ${groups.length ? groups.map(g => `
-      <div class="place-group">
-        <h3 class="place-title">${esc(g.place)}<span class="muted">${g.list.length}人</span></h3>
-        <div class="card-grid">${g.list.map(dashCard).join('')}</div>
-      </div>`).join('') : `<div class="card empty-card">${noPatients ? '患者が登録されていません' : '未完了の項目はありません'}</div>`}
-  </section>
+  ${progressList()}
 
   <section class="card panel">
     <div class="panel-head"><h2>訪問予定</h2><a class="btn small" href="#/schedule">予定を追加</a></div>
@@ -610,7 +678,7 @@ function viewFollowup() {
 
 function patientForm() {
   return `<form class="form-grid" data-form="patient">
-      <label>患者番号<input type="text" name="number" required maxlength="20" placeholder="例：A-001" autocomplete="off"></label>
+      <label>患者番号（7000からの連番）<input type="text" name="number" required maxlength="8" inputmode="numeric" pattern="\\d+" title="数字で入力してください" value="${nextPatientNumber()}" autocomplete="off"></label>
       <label>訪問先<select name="place" required>${options(places(), ui.placeFilter || '', { blank: '選択' })}</select></label>
       <label>ステータス<select name="status">${options(STATUSES, '受付')}</select></label>
       <label>担当<select name="staff">${options(state.settings.staff, '', { blank: '—' })}</select></label>
@@ -669,7 +737,7 @@ function viewPatient(id) {
       <span class="muted">チェック ${pr.done}/${pr.total}</span>
     </div>
     <form class="form-grid" data-form="patient-edit" data-id="${p.id}">
-      <label>患者番号<input type="text" name="number" required maxlength="20" value="${esc(p.number)}"></label>
+      <label>患者番号<input type="text" name="number" required maxlength="8" inputmode="numeric" value="${esc(p.number)}"></label>
       <label>訪問先<select name="place">${options(places(), p.place)}</select></label>
       <label>ステータス<select name="status" class="${statusClass(p.status)}">${options(STATUSES, p.status)}</select></label>
       <label>担当<select name="staff">${options(state.settings.staff, p.staff || '', { blank: '—' })}</select></label>
@@ -691,6 +759,23 @@ function viewPatient(id) {
   </section>
 
   <section class="card panel">
+    <div class="panel-head"><h2>郵送・送付の記録</h2><span class="muted">何を・いつ送ったかを残します</span></div>
+    <form class="form-grid" data-form="mail" data-id="${p.id}">
+      <label>書類<select name="type" required>${options(state.settings.mailTypes, '', { blank: '選択' })}</select></label>
+      <label>郵送・送付日<input type="date" name="date" required value="${ymd(new Date())}"></label>
+      <label class="wide">メモ<input type="text" name="note" maxlength="60" placeholder="例：簡易書留"></label>
+      <div class="form-actions"><button class="btn primary" type="submit">記録する</button></div>
+    </form>
+    ${mailRecords(p).length ? `<div class="table-wrap"><table class="table">
+      <thead><tr><th>郵送・送付日</th><th>書類</th><th>メモ</th><th>記録者</th><th></th></tr></thead>
+      <tbody>${mailRecords(p).map(m => `<tr>
+        <td class="nowrap">${fmtDate(m.date)}</td><td>${esc(m.type)}</td><td>${esc(m.note || '')}</td>
+        <td class="muted small nowrap">${esc(m.by || '')} ${m.at ? fmtDateTime(m.at) : ''}</td>
+        <td><button class="link danger" data-action="mail-delete" data-pid="${p.id}" data-mid="${m.id}">削除</button></td>
+      </tr>`).join('')}</tbody></table></div>` : '<p class="empty">まだ記録はありません</p>'}
+  </section>
+
+  <section class="card panel">
     <div class="panel-head"><h2>訪問予定・履歴</h2></div>
     ${visitForm(p.id)}
     ${visitTable(visits, { showDate: true })}
@@ -702,8 +787,50 @@ function viewPatient(id) {
   </section>`;
 }
 
+function dailyVisitList() {
+  const day = ui.day;
+  const visits = visitsBetween(day, day).filter(v => !ui.firstOnly || v.kind === '初診');
+  const tags = p => {
+    const out = mailRecords(p).map(m => `<span class="tag tag-ok">${esc(m.type)} ${shortMd(m.date)}</span>`);
+    ALL_ITEMS.filter(i => itemValue(p, i.id) === '後日返信待ち')
+      .forEach(i => out.push(`<span class="tag tag-wait">${esc(shortLabel(i))} 返信待ち</span>`));
+    return out.join('') || '<span class="muted">—</span>';
+  };
+  return `<section class="card panel daily-section">
+    <div class="daily-head">
+      <button class="btn small no-print" data-action="day-prev" aria-label="前の日">‹</button>
+      <h2>${fmtDateJa(day)}（${WD[parseYmd(day).getDay()]}）の訪問${ui.firstOnly ? '｜初診のみ' : ''}</h2>
+      <button class="btn small no-print" data-action="day-next" aria-label="次の日">›</button>
+      <button class="btn small ghost no-print" data-action="day-today">今日</button>
+      <input type="date" class="no-print day-pick" data-action="day-pick" value="${day}" aria-label="日付を選ぶ">
+      <label class="inline no-print"><input type="checkbox" data-action="first-only"${ui.firstOnly ? ' checked' : ''}> 初診の人だけ</label>
+      <span class="spacer"></span>
+      <button class="btn no-print" data-action="print-daily">この日の一覧を印刷</button>
+    </div>
+    ${visits.length ? `<div class="table-wrap"><table class="table daily-table">
+      <thead><tr><th>初診日</th><th>時間</th><th>患者番号</th><th>氏名 <span class="muted small no-print">（このPCのみ）</span></th><th>区分</th><th>訪問先</th><th>状況</th></tr></thead>
+      <tbody>${visits.map(v => {
+        const p = patientById(v.patientId);
+        if (!p) return '';
+        const fv = firstVisitOf(p);
+        const name = localNames[p.id] || '';
+        return `<tr>
+          <td class="nowrap${fv && fv.date === day ? ' first-today' : ''}">${fv ? shortMd(fv.date) : '<span class="muted">未定</span>'}</td>
+          <td class="nowrap">${esc(v.time || '—')}</td>
+          <td class="nowrap">${patientLink(p)}</td>
+          <td class="name-cell"><input type="text" class="name-input" data-action="local-name" data-id="${p.id}" value="${esc(name)}" placeholder="氏名を入力" autocomplete="off"><span class="print-only">${esc(name)}</span></td>
+          <td><span class="kind kind-${VISIT_KINDS.indexOf(v.kind)}">${esc(v.kind)}</span></td>
+          <td class="nowrap">${esc(p.place)}</td>
+          <td>${tags(p)}</td>
+        </tr>`;
+      }).join('')}</tbody></table></div>` : `<p class="empty">${ui.firstOnly ? 'この日の初診はありません' : 'この日の訪問予定はありません'}</p>`}
+    <p class="muted small no-print">氏名はこのPCのブラウザにだけ保存され、サーバーやデータの書き出しには含まれません（印刷には出ます）。</p>
+  </section>`;
+}
+
 function viewSchedule() {
   return `
+  ${dailyVisitList()}
   <section class="card panel">
     <div class="panel-head"><h2>訪問予定を追加</h2><span class="muted">「初診」の予定を入れると初診日確定に、初診を「実施済」にすると初診済・医院処理中に自動で変わります</span></div>
     ${state.patients.length ? visitForm('') : '<p class="empty">先に<a href="#/patients">患者一覧</a>から患者を登録してください</p>'}
@@ -723,6 +850,7 @@ function viewSettings() {
       <label>施設名<textarea name="facilities" rows="6">${esc(state.settings.facilities.join('\n'))}</textarea>
         <span class="muted small">「居宅」は自動で追加されます</span></label>
       <label>スタッフ（入力者・担当者）<textarea name="staff" rows="6">${esc(state.settings.staff.join('\n'))}</textarea></label>
+      <label>郵送・送付する書類<textarea name="mailTypes" rows="6">${esc(state.settings.mailTypes.join('\n'))}</textarea></label>
       <div class="form-actions"><button class="btn primary" type="submit">保存</button></div>
     </form>
   </section>
@@ -1218,6 +1346,15 @@ document.addEventListener('change', e => {
   }
   const a = el.dataset.action;
   if (!a) return;
+  if (a === 'local-name') {
+    const v = el.value.trim();
+    if (v) localNames[el.dataset.id] = v; else delete localNames[el.dataset.id];
+    saveLocalNames();
+    toast('氏名をこのPCに保存しました');
+    return;
+  }
+  if (a === 'day-pick') { if (el.value) { ui.day = el.value; render(); } return; }
+  if (a === 'first-only') { ui.firstOnly = el.checked; render(); return; }
   if (a === 'patient-status') {
     if (!requireUser()) { render(); return; }
     setStatus(patientById(el.dataset.id), el.value);
@@ -1280,10 +1417,31 @@ document.addEventListener('keydown', e => {
 document.addEventListener('click', e => {
   const opt = e.target.closest('[data-opt]');
   if (opt && notice) { toggleOpt(opt); return; }
+  const row = e.target.closest('tr.row-link');
+  if (row && !e.target.closest('a, button, input, select, label')) { location.hash = row.dataset.href; return; }
   const el = e.target.closest('[data-action]');
   if (!el || el.tagName === 'SELECT' || el.type === 'checkbox' || el.type === 'file' || el.type === 'text' || el.tagName === 'TEXTAREA') return;
   const a = el.dataset.action;
-  if (a === 'toggle-add') {
+  if (a === 'list-filter') { ui.listFilter = el.dataset.filter; render(); }
+  else if (a === 'list-sort') {
+    const k = el.dataset.key;
+    ui.listSort = ui.listSort.key === k ? { key: k, dir: -ui.listSort.dir } : { key: k, dir: 1 };
+    render();
+  } else if (a === 'day-prev' || a === 'day-next') {
+    ui.day = ymd(addDays(parseYmd(ui.day), a === 'day-next' ? 1 : -1)); render();
+  } else if (a === 'day-today') { ui.day = ymd(new Date()); render(); }
+  else if (a === 'print-daily') {
+    document.body.classList.add('print-daily');
+    window.print();
+    setTimeout(() => document.body.classList.remove('print-daily'), 500);
+  } else if (a === 'mail-delete') {
+    const p = patientById(el.dataset.pid);
+    const m = (p.mails || []).find(x => x.id === el.dataset.mid);
+    if (!m || !confirm(`${m.type}（${fmtDate(m.date)}）の記録を削除しますか？`)) return;
+    p.mails = p.mails.filter(x => x.id !== m.id);
+    addLog(p.id, `郵送・送付の記録を削除：${m.type}（${fmtDate(m.date)}）`);
+    save(); render();
+  } else if (a === 'toggle-add') {
     ui.showAddForm = !ui.showAddForm; render();
     if (ui.showAddForm) { const f = document.querySelector('form[data-form="patient"] input[name="number"]'); if (f) f.focus(); }
   }
@@ -1345,6 +1503,7 @@ document.addEventListener('submit', e => {
   if (kind === 'settings') {
     const lines = s => s.split('\n').map(x => x.trim()).filter(Boolean);
     state.settings.facilities = lines(fd.facilities).filter(x => x !== '居宅');
+    state.settings.mailTypes = lines(fd.mailTypes);
     state.settings.staff = lines(fd.staff);
     save(); render(); toast('設定を保存しました');
     return;
@@ -1357,15 +1516,25 @@ document.addEventListener('submit', e => {
   if (!requireUser()) return;
   if (kind === 'patient') {
     const number = fd.number.trim();
+    if (!/^\d+$/.test(number)) { alert('患者番号は数字で入力してください（7000からの連番）'); return; }
     if (state.patients.some(p => p.number === number)) { alert(`患者番号 ${number} はすでに登録されています`); return; }
-    const p = { id: uid(), number, place: fd.place, status: fd.status, staff: fd.staff, memo: fd.memo, remarks: '', checklist: {}, createdAt: nowIso(), updatedAt: nowIso() };
+    const p = { id: uid(), number, place: fd.place, status: fd.status, staff: fd.staff, memo: fd.memo, remarks: '', checklist: {}, mails: [], createdAt: nowIso(), updatedAt: nowIso() };
     state.patients.push(p);
     addLog(p.id, `患者を登録（${p.place}／${p.status}）`);
     ui.showAddForm = false;
     save(); render(); toast(`${number} を追加しました`);
+  } else if (kind === 'mail') {
+    const p = patientById(form.dataset.id);
+    if (!fd.type || !fd.date) return;
+    p.mails = p.mails || [];
+    p.mails.push({ id: uid(), type: fd.type, date: fd.date, note: (fd.note || '').trim(), by: ui.currentUser, at: nowIso() });
+    p.updatedAt = nowIso();
+    addLog(p.id, `郵送・送付：${fd.type}（${fmtDate(fd.date)}）`);
+    save(); render(); toast('郵送・送付を記録しました');
   } else if (kind === 'patient-edit') {
     const p = patientById(form.dataset.id);
     const number = fd.number.trim();
+    if (!/^\d+$/.test(number)) { alert('患者番号は数字で入力してください'); return; }
     if (number !== p.number && state.patients.some(x => x.number === number)) { alert(`患者番号 ${number} はすでに登録されています`); return; }
     const changes = [];
     if (number !== p.number) changes.push(`番号 ${p.number}→${number}`);
@@ -1403,36 +1572,45 @@ function addSampleData() {
     });
     return c;
   };
-  const mk = (number, place, status, staffName, memo, cl = {}) => {
-    const p = { id: uid(), number, place, status, staff: staffName, memo, remarks: '', checklist: cl, createdAt: nowIso(), updatedAt: nowIso() };
+  let seq = Number(nextPatientNumber());
+  const mk = (place, status, staffName, memo, cl = {}, createdDaysAgo = 0) => {
+    const created = addDays(today, -createdDaysAgo).toISOString();
+    const p = { id: uid(), number: String(seq++), place, status, staff: staffName, memo, remarks: "", checklist: cl, mails: [], createdAt: created, updatedAt: nowIso() };
     state.patients.push(p);
     return p;
   };
-  const visit = (p, offset, time, kind, staffName, note = '', done = false) => {
+  const visit = (p, offset, time, kind, staffName, note = "", done = false) => {
     state.visits.push({ id: uid(), patientId: p.id, date: d(offset), time, kind, staff: staffName, note, done });
   };
-  const fa = f[0] || '居宅', fb = f[1] || '居宅', fc = f[2] || '居宅';
-  const p1 = mk('S-901', fa, '初診済・医院処理中', s1, '同意書は家族が来週持参',
-    checklist(['p', 'q', 'a', 'b'], { b1: '後日返信待ち', b7: '後日返信待ち' }));
-  const p2 = mk('S-902', fa, '初診済・医院処理中', s1, '',
-    checklist(['p', 'q', 'a', 'b', 'c'], { a10: '未', a11: '未', c2: '未', c3: '未', c4: '未' }));
-  const p3 = mk('S-903', fb, '継続訪問', s2, '', checklist(['p', 'q', 'a', 'b', 'c', 'r']));
-  const p4 = mk('S-904', fb, '初診日確定', s2, '施設側の立会いあり', checklist(['p'], { q1: '済', q2: '済' }));
-  const p5 = mk('S-905', '居宅', '初診日調整中', s1, '家族と日程調整中', checklist([], { p1: '済', p2: '済' }));
-  mk('S-906', '居宅', '受付', '', 'ケアマネから依頼');
-  const p7 = mk('S-907', fc, '初診済・医院処理中', s2, '',
-    checklist(['p', 'q', 'a', 'b', 'c', 'r'], { b2: '後日返信待ち', b4: '後日返信待ち', c4: '未' }));
-  visit(p1, -3, '10:00', '初診', s1, '', true);
-  visit(p2, -1, '14:00', '初診', s1, '', true);
-  visit(p7, -6, '15:00', '初診', s2, '', true);
-  visit(p3, 0, '10:30', '再診', s2, '義歯調整');
-  visit(p1, 0, '13:30', '再診', s1);
-  visit(p4, 1, '11:00', '初診', s2, '');
-  visit(p7, 1, '15:00', '再診', s2);
-  visit(p2, 4, '14:00', '再診', s1);
-  visit(p3, 7, '10:30', '再診', s2);
+  const mail = (p, type, offset) => { p.mails.push({ id: uid(), type, date: d(offset), note: "", by: s1, at: nowIso() }); };
+  const mt = state.settings.mailTypes;
+  const fa = f[0] || "居宅", fb = f[1] || "居宅", fc = f[2] || "居宅";
+  const p3 = mk(fb, "継続訪問", s2, "", checklist(["p", "q", "a", "b", "c", "r"]), 28);
+  const p7 = mk(fc, "初診済・医院処理中", s2, "",
+    checklist(["p", "q", "a", "b", "c", "r"], { b2: "後日返信待ち", b4: "後日返信待ち", c4: "未" }), 18);
+  const p1 = mk(fa, "初診済・医院処理中", s1, "同意書は家族が来週持参",
+    checklist(["p", "q", "a", "b"], { b1: "後日返信待ち", b7: "後日返信待ち" }), 16);
+  const p2 = mk(fa, "初診済・医院処理中", s1, "",
+    checklist(["p", "q", "a", "b", "c"], { a10: "未", a11: "未", c2: "未", c3: "未", c4: "未" }), 14);
+  const p4 = mk(fb, "初診日確定", s2, "施設側の立会いあり", checklist(["p"], { q1: "済", q2: "済" }), 9);
+  const p8 = mk("居宅", "初診日確定", s1, "", checklist(["p", "q"]), 7);
+  const p5 = mk("居宅", "初診日調整中", s1, "家族と日程調整中", checklist([], { p1: "済", p2: "済" }), 5);
+  mk("居宅", "受付", "", "ケアマネから依頼", {}, 1);
+  if (mt[0]) { mail(p3, mt[0], -20); mail(p7, mt[0], -5); mail(p1, mt[0], -2); }
+  if (mt[2]) { mail(p3, mt[2], -18); mail(p7, mt[2], -4); }
+  visit(p3, -21, "10:30", "初診", s2, "", true);
+  visit(p1, -3, "10:00", "初診", s1, "", true);
+  visit(p2, -1, "14:00", "初診", s1, "", true);
+  visit(p7, -6, "15:00", "初診", s2, "", true);
+  visit(p4, 0, "09:30", "初診", s2, "");
+  visit(p3, 0, "10:30", "再診", s2, "義歯調整");
+  visit(p1, 0, "13:30", "再診", s1);
+  visit(p8, 0, "15:00", "初診", s1, "");
+  visit(p7, 1, "15:00", "再診", s2);
+  visit(p2, 4, "14:00", "再診", s1);
+  visit(p3, 7, "10:30", "再診", s2);
   void p5;
-  addLog(p1.id, 'サンプルデータとして登録');
+  addLog(p1.id, "サンプルデータとして登録");
 }
 
 render();
